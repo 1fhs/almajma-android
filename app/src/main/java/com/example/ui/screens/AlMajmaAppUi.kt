@@ -1630,6 +1630,10 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
     var isSimulatingCamera by remember { mutableStateOf(false) }
     var runningOcrAudit by remember { mutableStateOf(false) }
     var ocrAuditFinished by remember { mutableStateOf(false) }
+    var medicineQuantity by remember { mutableStateOf("1") }
+    var medicineDeliveryMethod by remember { mutableStateOf("delivery") }
+    var medicineDeliveryAddress by remember { mutableStateOf("") }
+    var medicineCustomerNote by remember { mutableStateOf("") }
 
     val allMedicines = products.filter { it.category == "medicine" }
     val now = System.currentTimeMillis()
@@ -1823,6 +1827,47 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("تفاصيل طلب الدواء قبل البث", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = medicineQuantity,
+                        onValueChange = { medicineQuantity = it.filter { ch -> ch.isDigit() }.take(3).ifBlank { "1" } },
+                        label = { Text("الكمية") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(0.55f)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { medicineDeliveryMethod = if (medicineDeliveryMethod == "delivery") "pickup" else "delivery" }) {
+                        Checkbox(checked = medicineDeliveryMethod == "pickup", onCheckedChange = { checked -> medicineDeliveryMethod = if (checked) "pickup" else "delivery" })
+                        Text(if (medicineDeliveryMethod == "pickup") "استلام من الصيدلية" else "توصيل للعنوان", fontSize = 11.sp)
+                    }
+                }
+                OutlinedTextField(
+                    value = medicineDeliveryAddress,
+                    onValueChange = { medicineDeliveryAddress = it },
+                    label = { Text("عنوان التوصيل / منطقة الاستلام") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = medicineCustomerNote,
+                    onValueChange = { medicineCustomerNote = it },
+                    label = { Text("ملاحظة للصدلية: التركيز/الشركة/أي تنبيه") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1840,7 +1885,14 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
             Button(
                 onClick = {
                     val medicineName = searchMedicineText.ifBlank { activeIngredientQuery.ifBlank { "طلب دواء غير محدد" } }
-                    viewModel.requestPrescriptionDawaa(medicineName, mockImageAttached)
+                    viewModel.requestPrescriptionDawaa(
+                        medicineName = medicineName,
+                        prescriptionAttached = mockImageAttached,
+                        quantity = medicineQuantity.toIntOrNull() ?: 1,
+                        deliveryMethod = medicineDeliveryMethod,
+                        deliveryAddress = medicineDeliveryAddress,
+                        customerNote = medicineCustomerNote
+                    )
                     mockImageAttached = false
                     ocrAuditFinished = false
                 },
@@ -1954,7 +2006,16 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { viewModel.purchaseSoukItem(medicine, null) },
+                                onClick = {
+                                    viewModel.purchaseMedicineProduct(
+                                        product = medicine,
+                                        prescriptionAttached = mockImageAttached,
+                                        quantity = medicineQuantity.toIntOrNull() ?: 1,
+                                        deliveryMethod = medicineDeliveryMethod,
+                                        deliveryAddress = medicineDeliveryAddress,
+                                        customerNote = medicineCustomerNote
+                                    )
+                                },
                                 enabled = canPurchase && (!medicine.requiresPrescription || mockImageAttached),
                                 modifier = Modifier.weight(1f).height(38.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
@@ -1975,7 +2036,14 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
                             OutlinedButton(
                                 onClick = {
                                     searchMedicineText = medicine.activeIngredient.ifBlank { medicine.name }
-                                    viewModel.requestPrescriptionDawaa(searchMedicineText, mockImageAttached)
+                                    viewModel.requestPrescriptionDawaa(
+                                        medicineName = searchMedicineText,
+                                        prescriptionAttached = mockImageAttached,
+                                        quantity = medicineQuantity.toIntOrNull() ?: 1,
+                                        deliveryMethod = medicineDeliveryMethod,
+                                        deliveryAddress = medicineDeliveryAddress,
+                                        customerNote = "طلب بدائل لنفس المادة الفعالة. $medicineCustomerNote"
+                                    )
                                 },
                                 modifier = Modifier.weight(1f).height(38.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
@@ -1998,6 +2066,10 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
     var selectedCategoryFilter by remember { mutableStateOf("all") } // all, clothing, wholesale
     var showBargainingDialog by remember { mutableStateOf<ProductEntity?>(null) }
     var bargainPriceDraft by remember { mutableStateOf("") }
+    var marketQuantityDraft by remember { mutableStateOf("1") }
+    var marketDeliveryMethod by remember { mutableStateOf("delivery") }
+    var marketDeliveryAddress by remember { mutableStateOf("") }
+    var marketOrderNote by remember { mutableStateOf("") }
 
     val filteredProducts = products.filter {
         it.category != "medicine" && (selectedCategoryFilter == "all" || it.category == selectedCategoryFilter)
@@ -2111,7 +2183,14 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             // Buy Button
                             Button(
-                                onClick = { viewModel.purchaseSoukItem(item, null) },
+                                onClick = {
+                                    showBargainingDialog = item
+                                    bargainPriceDraft = item.price.toInt().toString()
+                                    marketQuantityDraft = "1"
+                                    marketDeliveryMethod = "delivery"
+                                    marketDeliveryAddress = ""
+                                    marketOrderNote = ""
+                                },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(32.dp),
@@ -2125,6 +2204,10 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                                 onClick = {
                                     showBargainingDialog = item
                                     bargainPriceDraft = (item.price * 0.9).toInt().toString()
+                                    marketQuantityDraft = "1"
+                                    marketDeliveryMethod = "delivery"
+                                    marketDeliveryAddress = ""
+                                    marketOrderNote = ""
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                                 modifier = Modifier
@@ -2156,10 +2239,41 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                     OutlinedTextField(
                         value = bargainPriceDraft,
                         onValueChange = { bargainPriceDraft = it },
-                        label = { Text("السعر المقترح للشراء بالمساومة") },
+                        label = { Text("سعر الوحدة المقترح") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = marketQuantityDraft,
+                            onValueChange = { marketQuantityDraft = it.filter { ch -> ch.isDigit() }.take(3).ifBlank { "1" } },
+                            label = { Text("الكمية") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(0.65f)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { marketDeliveryMethod = if (marketDeliveryMethod == "delivery") "pickup" else "delivery" }) {
+                            Checkbox(checked = marketDeliveryMethod == "pickup", onCheckedChange = { checked -> marketDeliveryMethod = if (checked) "pickup" else "delivery" })
+                            Text(if (marketDeliveryMethod == "pickup") "استلام" else "توصيل", fontSize = 11.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = marketDeliveryAddress,
+                        onValueChange = { marketDeliveryAddress = it },
+                        label = { Text("عنوان التوصيل / منطقة الاستلام") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = marketOrderNote,
+                        onValueChange = { marketOrderNote = it },
+                        label = { Text("ملاحظة: مقاس/لون/تفاوض") },
+                        minLines = 2,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -2168,7 +2282,14 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                 Button(
                     onClick = {
                         val prop = bargainPriceDraft.toDoubleOrNull() ?: item.price
-                        viewModel.purchaseSoukItem(item, prop)
+                        viewModel.purchaseMarketItemFull(
+                            product = item,
+                            offerBargainPrice = prop,
+                            quantity = marketQuantityDraft.toIntOrNull() ?: 1,
+                            deliveryMethod = marketDeliveryMethod,
+                            deliveryAddress = marketDeliveryAddress,
+                            customerNote = marketOrderNote
+                        )
                         showBargainingDialog = null
                     }
                 ) {
@@ -2531,6 +2652,26 @@ fun ChatRoomScreen(viewModel: PlatformViewModel) {
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     OrderLifecycleStrip(activeOrder.status)
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "الكمية: ${activeOrder.quantity} | طريقة التسليم: ${if (activeOrder.deliveryMethod == "pickup") "استلام ذاتي" else "توصيل"} | القطاع: ${activeOrder.marketSector.ifBlank { activeOrder.category }}",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (activeOrder.deliveryAddress.isNotBlank()) {
+                        Text("العنوان: ${activeOrder.deliveryAddress}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (activeOrder.customerNote.isNotBlank()) {
+                        Text("ملاحظة العميل: ${activeOrder.customerNote}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (activeOrder.category == "medicine") {
+                        Text(
+                            text = if (activeOrder.needsPrescription) if (activeOrder.prescriptionAttached) "الوصفة: مرفقة مؤقتًا" else "الوصفة: مطلوبة ولم ترفق" else "الوصفة: غير مطلوبة",
+                            fontSize = 10.sp,
+                            color = if (activeOrder.needsPrescription && !activeOrder.prescriptionAttached) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
+                    }
 
                     if (offers.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -3510,7 +3651,7 @@ fun MerchantIncomingRequestsScreen(viewModel: PlatformViewModel) {
     val orders by viewModel.orders.collectAsStateWithLifecycle()
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isPharmacy = currentUser?.businessType == "pharmacy"
-    val marketplaceIncoming = orders.filter { it.merchantId == currentUser?.id && it.category != "medicine" && it.status in listOf("pending", "funds_frozen") }
+    val marketplaceIncoming = orders.filter { it.merchantId == currentUser?.id && it.category != "medicine" && it.status in listOf("pending", "funds_frozen", "preparing", "ready", "delivering") }
     val dismissedMedicationRequestIds = remember { mutableStateListOf<Int>() }
     val openMedicationRequests = orders.filter {
         it.category == "medicine" &&
@@ -3560,10 +3701,23 @@ fun MerchantIncomingRequestsScreen(viewModel: PlatformViewModel) {
                                 Text("طلب سوق #${req.id}", fontWeight = FontWeight.Bold)
                                 Text(req.productName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("الحالة: ${orderStatusAr(req.status)} | المبلغ: ${Money.formatMinor(req.totalPriceMinor)} ريال", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                Text("الكمية: ${req.quantity} | التسليم: ${if (req.deliveryMethod == "pickup") "استلام" else "توصيل"}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (req.deliveryAddress.isNotBlank()) Text("العنوان: ${req.deliveryAddress}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (req.customerNote.isNotBlank()) Text("ملاحظة: ${req.customerNote}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = { viewModel.markOrderPreparing(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("بدء التجهيز", color = Color.Black, fontSize = 10.sp) }
-                                    OutlinedButton(onClick = { viewModel.selectOrderForChat(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("فتح المحادثة", fontSize = 10.sp) }
+                                    when (req.status) {
+                                        "pending", "funds_frozen" -> Button(onClick = { viewModel.markOrderPreparing(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("قبول وتجهيز", color = Color.Black, fontSize = 10.sp) }
+                                        "preparing" -> Button(onClick = { viewModel.markOrderReady(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("جاهز", color = Color.Black, fontSize = 10.sp) }
+                                        else -> OutlinedButton(onClick = { viewModel.selectOrderForChat(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("متابعة", fontSize = 10.sp) }
+                                    }
+                                    OutlinedButton(onClick = { viewModel.selectOrderForChat(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("محادثة", fontSize = 10.sp) }
+                                }
+                                if (req.status in listOf("pending", "funds_frozen")) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    TextButton(onClick = { viewModel.rejectMarketplaceOrder(req.id) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                        Text("رفض الطلب واسترجاع الضمان للعميل", fontSize = 10.sp)
+                                    }
                                 }
                             }
                         }

@@ -33,7 +33,8 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         AppDatabase.MIGRATION_4_5,
         AppDatabase.MIGRATION_5_6,
         AppDatabase.MIGRATION_6_7,
-        AppDatabase.MIGRATION_7_8
+        AppDatabase.MIGRATION_7_8,
+        AppDatabase.MIGRATION_8_9
     )
     .build()
 
@@ -371,7 +372,14 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
     }
 
     // Interactive operations: Client Broadcast Prescription medicine request to nearby pharmacies (Reverse Bidding)
-    fun requestPrescriptionDawaa(medicineName: String, prescriptionAttached: Boolean) {
+    fun requestPrescriptionDawaa(
+        medicineName: String,
+        prescriptionAttached: Boolean,
+        quantity: Int = 1,
+        deliveryMethod: String = "delivery",
+        deliveryAddress: String = "",
+        customerNote: String = ""
+    ) {
         viewModelScope.launch {
             val client = _currentUser.value ?: return@launch
             val orderId = repository.createOrder(
@@ -380,12 +388,17 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
                 driverId = null,
                 productName = "بحث عكسي عن دواء: $medicineName" + (if (prescriptionAttached) " (مرفق صورة الروشتة 📸)" else ""),
                 category = "medicine",
-                totalPrice = 0.0, // awaiting pharmacy bid price
-                deliveryFee = 1500.0, // normal flat delivery fee
+                totalPrice = 0.0,
+                deliveryFee = if (deliveryMethod == "pickup") 0.0 else 1500.0,
                 paymentMethod = "wallet",
-                prescriptionAttached = prescriptionAttached
+                prescriptionAttached = prescriptionAttached,
+                quantity = quantity,
+                customerNote = customerNote,
+                deliveryMethod = deliveryMethod,
+                deliveryAddress = deliveryAddress,
+                marketSector = "pharmacy",
+                needsPrescription = prescriptionAttached
             )
-            // Save state and open chat room/offer responders list
             _selectedOrderId.value = orderId
             _clientScreen.value = "chat"
         }
@@ -393,9 +406,22 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
 
     // Interactive operations: Client buying product or bargaining from souk
     fun purchaseSoukItem(product: ProductEntity, offerBargainPrice: Double?) {
+        purchaseMarketItemFull(product, offerBargainPrice, 1, "delivery", "", "")
+    }
+
+    fun purchaseMarketItemFull(
+        product: ProductEntity,
+        offerBargainPrice: Double?,
+        quantity: Int,
+        deliveryMethod: String,
+        deliveryAddress: String,
+        customerNote: String
+    ) {
         viewModelScope.launch {
             val client = _currentUser.value ?: return@launch
-            val finalPrice = offerBargainPrice ?: product.price
+            val unitPrice = offerBargainPrice ?: product.price
+            val safeQuantity = quantity.coerceAtLeast(1)
+            val finalPrice = unitPrice * safeQuantity
             val orderId = repository.createOrder(
                 clientId = client.id,
                 merchantId = product.merchantId,
@@ -403,8 +429,48 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
                 productName = product.name,
                 category = product.category,
                 totalPrice = finalPrice,
-                deliveryFee = 1000.0, // local delivery fee
-                paymentMethod = "wallet"
+                deliveryFee = if (deliveryMethod == "pickup") 0.0 else 1000.0,
+                paymentMethod = "wallet",
+                quantity = safeQuantity,
+                customerNote = customerNote,
+                deliveryMethod = deliveryMethod,
+                deliveryAddress = deliveryAddress,
+                marketSector = if (product.category == "medicine") "pharmacy" else "marketplace",
+                needsPrescription = product.requiresPrescription,
+                prescriptionAttached = false
+            )
+            _selectedOrderId.value = orderId
+            _clientScreen.value = "chat"
+        }
+    }
+
+    fun purchaseMedicineProduct(
+        product: ProductEntity,
+        prescriptionAttached: Boolean,
+        quantity: Int = 1,
+        deliveryMethod: String = "delivery",
+        deliveryAddress: String = "",
+        customerNote: String = ""
+    ) {
+        viewModelScope.launch {
+            val client = _currentUser.value ?: return@launch
+            val safeQuantity = quantity.coerceAtLeast(1)
+            val orderId = repository.createOrder(
+                clientId = client.id,
+                merchantId = product.merchantId,
+                driverId = null,
+                productName = product.name,
+                category = "medicine",
+                totalPrice = product.price * safeQuantity,
+                deliveryFee = if (deliveryMethod == "pickup") 0.0 else 1500.0,
+                paymentMethod = "wallet",
+                prescriptionAttached = prescriptionAttached,
+                quantity = safeQuantity,
+                customerNote = customerNote,
+                deliveryMethod = deliveryMethod,
+                deliveryAddress = deliveryAddress,
+                marketSector = "pharmacy",
+                needsPrescription = product.requiresPrescription
             )
             _selectedOrderId.value = orderId
             _clientScreen.value = "chat"
@@ -710,6 +776,13 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val merchant = _currentUser.value ?: return@launch
             repository.markOrderReady(orderId, merchant.id)
+        }
+    }
+
+    fun rejectMarketplaceOrder(orderId: Int, reason: String = "رفض التاجر طلب السوق لعدم توفر المنتج أو عدم مناسبة الشروط") {
+        viewModelScope.launch {
+            val merchant = _currentUser.value ?: return@launch
+            repository.rejectMarketplaceOrder(orderId, merchant.id, reason)
         }
     }
 

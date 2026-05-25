@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LedgerEntryEntity::class,
         OutboxEventEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -93,6 +93,12 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addMedicineSearchColumns(db)
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addOrderFlowColumns(db)
             }
         }
 
@@ -408,6 +414,23 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("UPDATE `products` SET activeIngredient = 'Amoxicillin + Clavulanic Acid', medicineForm = 'tablet', strengthText = '1g', therapeuticCategory = 'antibiotic', requiresPrescription = 1, manufacturerCountry = 'UK', barcode = 'MED-AUG-0001' WHERE category = 'medicine' AND name LIKE '%أوجمنتين%'")
                 db.execSQL("UPDATE `products` SET activeIngredient = 'Oral Rehydration Salts', medicineForm = 'solution', strengthText = 'ORS', therapeuticCategory = 'dehydration', requiresPrescription = 0, manufacturerCountry = 'Yemen', barcode = 'MED-ORS-0001' WHERE category = 'medicine' AND name LIKE '%جفاف%'")
                 db.execSQL("UPDATE `products` SET activeIngredient = 'Vitamin D3', medicineForm = 'drops', strengthText = '400 IU', therapeuticCategory = 'vitamins', requiresPrescription = 0, manufacturerCountry = 'India', barcode = 'MED-D3-0001' WHERE category = 'medicine' AND name LIKE '%فيتامين%'")
+            }
+        }
+
+        private fun addOrderFlowColumns(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "orders", "quantity", "INTEGER NOT NULL DEFAULT 1")
+            addColumnIfMissing(db, "orders", "customerNote", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "orders", "deliveryMethod", "TEXT NOT NULL DEFAULT 'delivery'")
+            addColumnIfMissing(db, "orders", "deliveryAddress", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "orders", "marketSector", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "orders", "needsPrescription", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "orders", "prescriptionAttached", "INTEGER NOT NULL DEFAULT 0")
+
+            if (tableExists(db, "orders")) {
+                db.execSQL("UPDATE `orders` SET quantity = 1 WHERE quantity <= 0")
+                db.execSQL("UPDATE `orders` SET marketSector = CASE WHEN category = 'medicine' THEN 'pharmacy' WHEN category IN ('clothing','wholesale','general_market') THEN 'marketplace' WHEN category = 'influencer' THEN 'influencer' WHEN category IN ('delivery','ride') THEN 'delivery' ELSE category END WHERE marketSector = ''")
+                db.execSQL("UPDATE `orders` SET deliveryMethod = CASE WHEN category = 'medicine' THEN 'delivery' WHEN category IN ('delivery','ride') THEN 'driver' ELSE 'delivery' END WHERE deliveryMethod = ''")
+                db.execSQL("UPDATE `orders` SET needsPrescription = 1 WHERE category = 'medicine' AND productName LIKE '%وصفة%'")
             }
         }
 

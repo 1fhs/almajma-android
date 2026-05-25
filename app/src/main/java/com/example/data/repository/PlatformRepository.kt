@@ -363,12 +363,29 @@ class PlatformRepository(
         totalPrice: Double,
         deliveryFee: Double,
         paymentMethod: String, // "wallet", "cash"
-        prescriptionAttached: Boolean = false
+        prescriptionAttached: Boolean = false,
+        quantity: Int = 1,
+        customerNote: String = "",
+        deliveryMethod: String = "delivery",
+        deliveryAddress: String = "",
+        marketSector: String = "",
+        needsPrescription: Boolean = false
     ): Int {
         val mode = connectionManager.networkMode.value
         val client = userDao.getUserById(clientId) ?: return -1
         val tenantId = client.tenantId
         val releaseCode = (1000..9999).random().toString()
+        val safeQuantity = quantity.coerceAtLeast(1)
+        val cleanDeliveryMethod = if (deliveryMethod == "pickup") "pickup" else if (deliveryMethod == "driver") "driver" else "delivery"
+        val cleanSector = marketSector.ifBlank {
+            when (category) {
+                "medicine" -> "pharmacy"
+                "clothing", "wholesale", "general_market" -> "marketplace"
+                "influencer" -> "influencer"
+                "delivery", "ride" -> "delivery"
+                else -> category
+            }
+        }
         val isMeshSigned = mode == NetworkMode.OFFLINE_MESH
         val isReversePharmacyRequest = category == "medicine" && merchantId == null && totalPrice <= 0.0
         val shouldSimulateConflict = !isReversePharmacyRequest && (mode == NetworkMode.OFFLINE_MESH || mode == NetworkMode.ZERO_DATA) && Random.nextBoolean()
@@ -393,6 +410,13 @@ class PlatformRepository(
             deliveryFee = deliveryFee,
             commissionAmount = 0.0,
             status = initialStatus,
+            quantity = safeQuantity,
+            customerNote = customerNote.trim(),
+            deliveryMethod = cleanDeliveryMethod,
+            deliveryAddress = deliveryAddress.trim(),
+            marketSector = cleanSector,
+            needsPrescription = needsPrescription,
+            prescriptionAttached = prescriptionAttached,
             otpReleaseCode = releaseCode,
             isLocalMeshSigned = isMeshSigned,
             originalPriceAtRequest = totalPrice,
@@ -409,9 +433,9 @@ class PlatformRepository(
                     orderId = orderId,
                     clientId = clientId,
                     medicineName = productName,
-                    isRequired = true,
+                    isRequired = needsPrescription,
                     hasAttachment = prescriptionAttached,
-                    status = if (prescriptionAttached) "uploaded" else "required"
+                    status = if (!needsPrescription) "not_required" else if (prescriptionAttached) "uploaded" else "required"
                 )
             )
         }
@@ -433,10 +457,10 @@ class PlatformRepository(
                 appendTimeline(persistedOrder, "system", "تعارض سعر", "تم تعليق الالتزام المالي حتى يوافق العميل على السعر الجديد.", initialStatus)
             }
             initialStatus == "waiting_offers" -> {
-                appendTimeline(persistedOrder, "client", "طلب دواء جديد", "تم بث طلب الدواء للصيدليات القريبة، ولا يتم تجميد أي مبلغ قبل وصول عرض صيدلية.", initialStatus)
+                appendTimeline(persistedOrder, "client", "طلب دواء جديد", "تم بث طلب الدواء للصيدليات القريبة. الكمية: $safeQuantity، طريقة الاستلام: $cleanDeliveryMethod، العنوان: ${deliveryAddress.ifBlank { "غير محدد" }}. لا يتم تجميد أي مبلغ قبل وصول عرض صيدلية.", initialStatus)
             }
             else -> {
-                appendTimeline(persistedOrder, "client", "إنشاء طلب", "تم إنشاء الطلب وحجز غرفة تفاوض آمنة.", initialStatus)
+                appendTimeline(persistedOrder, "client", "إنشاء طلب", "تم إنشاء الطلب. الكمية: $safeQuantity، طريقة الاستلام: $cleanDeliveryMethod، العنوان: ${deliveryAddress.ifBlank { "غير محدد" }}. ${customerNote.ifBlank { "" }}", initialStatus)
             }
         }
 
@@ -833,25 +857,51 @@ class PlatformRepository(
 
     suspend fun markOrderPreparing(orderId: Int, merchantId: Int): Boolean {
         val order = orderDao.getOrderById(orderId) ?: return false
-        if (order.merchantId != merchantId || order.status !in listOf("funds_frozen", "ready")) return false
+        if (order.merchantId != merchantId || order.status !in listOf("pending", "funds_frozen", "ready")) return false
+        val isMedicine = order.category == "medicine"
         val updated = order.copy(status = "preparing")
         orderDao.updateOrder(updated)
-        appendTimeline(updated, "merchant", "بدء التجهيز", "الصيدلية بدأت تجهيز الطلب والتحقق من الوصفة والدفعة والصلاحية.", "preparing")
-        notifyUser(order.tenantId, order.clientId, orderId, "الصيدلية بدأت التجهيز", "طلبك دخل مرحلة التحضير.", "info")
-        enqueueOutboxEvent(order.tenantId, "ORDER_PREPARING", "{ orderId: $orderId, merchantId: $merchantId }")
+        appendTimeline(
+            updated,
+            "merchant",
+            if (isMedicine) "بدء التجهيز الدوائي" else "قبول وتجهيز طلب السوق",
+            if (isMedicine) "الصيدلية بدأت تجهيز الطلب والتحقق من الوصفة والدفعة والصلاحية." else "التاجر قبل طلب السوق وبدأ تجهيز الكمية: ${order.quantity}، طريقة التسليم: ${order.deliveryMethod}.",
+            "preparing"
+        )
+        notifyUser(order.tenantId, order.clientId, orderId, if (isMedicine) "الصيدلية بدأت التجهيز" else "التاجر قبل الطلب", "طلبك دخل مرحلة التحضير.", "info")
+        enqueueOutboxEvent(order.tenantId, "ORDER_PREPARING", "{ orderId: $orderId, merchantId: $merchantId, category: '${order.category}' }")
         return true
     }
 
     suspend fun markOrderReady(orderId: Int, merchantId: Int): Boolean {
         val order = orderDao.getOrderById(orderId) ?: return false
         if (order.merchantId != merchantId || order.status !in listOf("funds_frozen", "preparing")) return false
+        val isMedicine = order.category == "medicine"
         val updated = order.copy(status = "ready")
         orderDao.updateOrder(updated)
-        appendTimeline(updated, "merchant", "جاهز للتسليم", "الطلب جاهز لدى الصيدلية. يمكن للسائق أو العميل استلامه بكود التسليم.", "ready")
+        appendTimeline(
+            updated,
+            "merchant",
+            "جاهز للتسليم",
+            if (isMedicine) "الطلب جاهز لدى الصيدلية. يمكن للسائق أو العميل استلامه بكود التسليم." else "طلب السوق جاهز للاستلام أو التوصيل حسب اختيار العميل: ${order.deliveryMethod}.",
+            "ready"
+        )
         notifyUser(order.tenantId, order.clientId, orderId, "طلبك جاهز", "الطلب جاهز للتسليم. لا تشارك الكود قبل الاستلام.", "success")
-        notifyUser(order.tenantId, order.driverId, orderId, "طلب جاهز للاستلام", "الطلب #$orderId جاهز لدى الصيدلية.", "info")
-        enqueueOutboxEvent(order.tenantId, "ORDER_READY", "{ orderId: $orderId, merchantId: $merchantId }")
+        notifyUser(order.tenantId, order.driverId, orderId, "طلب جاهز للاستلام", "الطلب #$orderId جاهز للاستلام.", "info")
+        enqueueOutboxEvent(order.tenantId, "ORDER_READY", "{ orderId: $orderId, merchantId: $merchantId, category: '${order.category}' }")
         return true
+    }
+
+    suspend fun rejectMarketplaceOrder(orderId: Int, merchantId: Int, reason: String): Boolean {
+        val order = orderDao.getOrderById(orderId) ?: return false
+        if (order.category == "medicine" || order.merchantId != merchantId) return false
+        if (order.status in listOf("completed", "cancelled", "refunded", "disputed")) return false
+        val success = cancelOrderAndRefund(orderId, merchantId, reason)
+        if (success) {
+            appendTimeline(order.copy(status = "cancelled"), "merchant", "رفض طلب السوق", reason, "cancelled")
+            enqueueOutboxEvent(order.tenantId, "MARKETPLACE_ORDER_REJECTED", "{ orderId: $orderId, merchantId: $merchantId, reason: '$reason' }")
+        }
+        return success
     }
 
     suspend fun cancelOrderAndRefund(orderId: Int, actorUserId: Int, reason: String): Boolean {

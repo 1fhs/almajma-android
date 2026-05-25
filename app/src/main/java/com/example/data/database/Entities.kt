@@ -94,7 +94,14 @@ data class OrderEntity(
     @ColumnInfo(defaultValue = "0") val deliveryFeeMinor: Long = Money.toMinor(deliveryFee),
     val commissionAmount: Double,
     @ColumnInfo(defaultValue = "0") val commissionAmountMinor: Long = Money.toMinor(commissionAmount),
-    val status: String, // "pending", "funds_frozen", "completed", "cancelled", "CONFLICT"
+    val status: String, // waiting_offers, offer_received, pending, funds_frozen, preparing, ready, delivering, completed, cancelled, disputed, refunded, CONFLICT
+    @ColumnInfo(defaultValue = "1") val quantity: Int = 1,
+    @ColumnInfo(defaultValue = "''") val customerNote: String = "",
+    @ColumnInfo(defaultValue = "'delivery'") val deliveryMethod: String = "delivery", // delivery, pickup
+    @ColumnInfo(defaultValue = "''") val deliveryAddress: String = "",
+    @ColumnInfo(defaultValue = "''") val marketSector: String = "", // pharmacy, marketplace, influencer, delivery
+    @ColumnInfo(defaultValue = "0") val needsPrescription: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val prescriptionAttached: Boolean = false,
     val otpReleaseCode: String,
     val isLocalMeshSigned: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
