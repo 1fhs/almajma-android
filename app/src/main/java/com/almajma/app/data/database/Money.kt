@@ -1,4 +1,4 @@
-package com.example.data.database
+package com.almajma.app.data.database
 
 import java.math.BigDecimal
 import java.math.RoundingMode

@@ -1,13 +1,13 @@
-package com.example.ui
+package com.almajma.app.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
-import com.example.data.database.*
-import com.example.data.network.ConnectionManager
-import com.example.data.network.NetworkMode
-import com.example.data.repository.PlatformRepository
+import com.almajma.app.data.database.*
+import com.almajma.app.data.network.ConnectionManager
+import com.almajma.app.data.network.NetworkMode
+import com.almajma.app.data.repository.PlatformRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -181,8 +181,8 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Audit and Sync state containers
-    private val _reconciliationReport = MutableStateFlow<com.example.data.repository.ReconciliationReport?>(null)
-    val reconciliationReport: StateFlow<com.example.data.repository.ReconciliationReport?> = _reconciliationReport.asStateFlow()
+    private val _reconciliationReport = MutableStateFlow<com.almajma.app.data.repository.ReconciliationReport?>(null)
+    val reconciliationReport: StateFlow<com.almajma.app.data.repository.ReconciliationReport?> = _reconciliationReport.asStateFlow()
 
     private val _outboxSyncLog = MutableStateFlow("مراقبة الـ Outbox نشطة. اضغط على زر 'تشغيل التدقيق وبدء المزامنة' لبدء التبادل.")
     val outboxSyncLog: StateFlow<String> = _outboxSyncLog.asStateFlow()

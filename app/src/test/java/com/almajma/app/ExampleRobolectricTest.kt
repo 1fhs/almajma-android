@@ -1,4 +1,4 @@
-package com.example
+package com.almajma.app
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -16,13 +16,13 @@ class ExampleRobolectricTest {
   fun `read string from context`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("منصة المَجْمَع", appName)
+    assertEquals("المَجْمَع", appName)
   }
 
   @Test
   fun `test viewModel initialization`() {
     val application = ApplicationProvider.getApplicationContext<android.app.Application>()
-    val viewModel = com.example.ui.PlatformViewModel(application)
+    val viewModel = com.almajma.app.ui.PlatformViewModel(application)
     org.junit.Assert.assertNotNull(viewModel)
   }
 }

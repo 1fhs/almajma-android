@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.almajma.app.ui.screens
 
 import android.widget.Toast
 import kotlinx.coroutines.launch
@@ -38,9 +38,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.database.*
-import com.example.data.network.NetworkMode
-import com.example.ui.PlatformViewModel
+import com.almajma.app.data.database.*
+import com.almajma.app.data.network.NetworkMode
+import com.almajma.app.ui.PlatformViewModel
 
 @Composable
 fun AlMajmaAppUi(viewModel: PlatformViewModel) {
@@ -400,7 +400,7 @@ fun AuthScreenAr(viewModel: PlatformViewModel) {
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.almajma_logo_1779666748298),
+                painter = androidx.compose.ui.res.painterResource(id = com.almajma.app.R.drawable.almajma_logo_1779666748298),
                 contentDescription = "شعار التطبيق",
                 modifier = Modifier.size(64.dp)
             )
@@ -5141,7 +5141,7 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
                     Button(
                         onClick = {
                             viewModel.saveSystemConfigChanges(
-                                com.example.data.database.SystemConfigEntity(
+                                com.almajma.app.data.database.SystemConfigEntity(
                                     primaryColor = primaryColorInput,
                                     secondaryColor = secondaryColorInput,
                                     appTitle = appTitleInput,
@@ -5617,7 +5617,7 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
                         onClick = {
                             coroutineScope.launch {
                                 // 1. Set mode to mesh/offline
-                                viewModel.setNetworkMode(com.example.data.network.NetworkMode.OFFLINE_MESH)
+                                viewModel.setNetworkMode(com.almajma.app.data.network.NetworkMode.OFFLINE_MESH)
                                 // 2. Direct-insert a sugarcane medication order in CONFLICT state
                                 val client = viewModel.repository.getUserByPhone("770000001")
                                 val pharmacy = viewModel.repository.getUserByPhone("770000002")

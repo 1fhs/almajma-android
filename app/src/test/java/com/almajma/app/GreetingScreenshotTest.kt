@@ -1,10 +1,10 @@
-package com.example
+package com.almajma.app
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
-import com.example.ui.screens.AlMajmaAppUi
-import com.example.ui.theme.MyApplicationTheme
+import com.almajma.app.ui.screens.AlMajmaAppUi
+import com.almajma.app.ui.theme.AlMajmaTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -24,8 +24,8 @@ class GreetingScreenshotTest {
   @Test
   fun greeting_screenshot() {
     composeTestRule.setContent { 
-      MyApplicationTheme { 
-        androidx.compose.material3.Text("منصة المَجْمَع") 
+      AlMajmaTheme { 
+        androidx.compose.material3.Text("المَجْمَع") 
       } 
     }
 
@@ -35,10 +35,10 @@ class GreetingScreenshotTest {
   @Test
   fun app_screenshot() {
     val application = ApplicationProvider.getApplicationContext<android.app.Application>()
-    val viewModel = com.example.ui.PlatformViewModel(application)
+    val viewModel = com.almajma.app.ui.PlatformViewModel(application)
     
     composeTestRule.setContent {
-      MyApplicationTheme {
+      AlMajmaTheme {
         AlMajmaAppUi(viewModel = viewModel)
       }
     }

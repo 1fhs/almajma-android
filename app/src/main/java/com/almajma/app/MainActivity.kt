@@ -1,4 +1,4 @@
-package com.example
+package com.almajma.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,9 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.PlatformViewModel
-import com.example.ui.screens.AlMajmaAppUi
-import com.example.ui.theme.MyApplicationTheme
+import com.almajma.app.ui.PlatformViewModel
+import com.almajma.app.ui.screens.AlMajmaAppUi
+import com.almajma.app.ui.theme.AlMajmaTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
           null
       }
 
-      MyApplicationTheme(
+      AlMajmaTheme(
           dynamicPrimary = dynamicPrimary,
           dynamicSecondary = dynamicSecondary
       ) {

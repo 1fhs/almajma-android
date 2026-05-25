@@ -1,4 +1,4 @@
-package com.example.data.network
+package com.almajma.app.data.network
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

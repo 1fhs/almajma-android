@@ -1,8 +1,8 @@
-package com.example.data.repository
+package com.almajma.app.data.repository
 
-import com.example.data.database.*
-import com.example.data.network.ConnectionManager
-import com.example.data.network.NetworkMode
+import com.almajma.app.data.database.*
+import com.almajma.app.data.network.ConnectionManager
+import com.almajma.app.data.network.NetworkMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlin.random.Random

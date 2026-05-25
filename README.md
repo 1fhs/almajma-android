@@ -198,3 +198,20 @@ View your app in AI Studio: https://ai.studio/apps/5bb95e4f-50e1-47e4-8aeb-f0996
 - تقرير سريع داخل لوحة الصيدلية/التاجر يعرض منتجاتي، الطلبات المفتوحة، المكتملة، الضمان، النزاعات، وعروض الدواء.
 
 > هذه التقارير محلية داخل Room. في الإنتاج يجب نقل التقارير إلى Backend/API مع صلاحيات حقيقية وفلاتر وتصدير.
+
+## المرحلة 8 — تنظيف الهوية والتجهيز
+
+تم تنظيف هوية التطبيق وتجهيزه للبناء المنتظم:
+
+- تغيير `namespace` و `applicationId` إلى `com.almajma.app` بدل قيم التجربة و AI Studio.
+- نقل حزم Kotlin من `com.example` إلى `com.almajma.app`.
+- تغيير اسم التطبيق إلى `المَجْمَع`.
+- تغيير الثيم من `Theme.MyApplication` إلى `Theme.AlMajma`.
+- تغيير دالة الثيم من `MyApplicationTheme` إلى `AlMajmaTheme`.
+- إضافة suffix لنسخة Debug: `com.almajma.app.debug` حتى لا تختلط مع نسخة Release لاحقًا.
+- إيقاف backup الافتراضي للبيانات الحساسة محليًا.
+- منع cleartext traffic افتراضيًا؛ أي Backend لاحقًا يجب أن يعمل عبر HTTPS.
+- تحديث GitHub Actions ليتحقق من هوية التطبيق قبل البناء.
+- إضافة `RELEASE_CHECKLIST.md` قبل أي توزيع خارجي.
+
+> هذه ليست مرحلة Production. ما زال التطبيق يحتاج Backend/Auth/Media/FCM/Payments قبل التشغيل التجاري.

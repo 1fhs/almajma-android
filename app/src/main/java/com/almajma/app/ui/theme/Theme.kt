@@ -1,4 +1,4 @@
-package com.example.ui.theme
+package com.almajma.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +42,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun MyApplicationTheme(
+fun AlMajmaTheme(
     darkTheme: Boolean = true, // Force energy-saving dark theme by default
     dynamicPrimary: Color? = null,
     dynamicSecondary: Color? = null,

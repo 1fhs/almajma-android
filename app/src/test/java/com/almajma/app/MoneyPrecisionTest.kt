@@ -1,6 +1,6 @@
-package com.example
+package com.almajma.app
 
-import com.example.data.database.Money
+import com.almajma.app.data.database.Money
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
