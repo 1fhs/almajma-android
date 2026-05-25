@@ -76,21 +76,54 @@ class PlatformRepository(
     suspend fun getUserByPhone(phone: String): UserEntity? = userDao.getUserByPhone(phone)
 
     suspend fun registerOrLoginUser(phone: String, role: String): UserEntity {
+        val requestedRole = role.trim()
+        val actualRole = when (requestedRole) {
+            "pharmacy", "market_merchant" -> "merchant"
+            else -> requestedRole
+        }
+        val requestedBusinessType = when (requestedRole) {
+            "pharmacy" -> "pharmacy"
+            "market_merchant" -> "marketplace"
+            "driver" -> "delivery"
+            "admin" -> "admin"
+            else -> "none"
+        }
         val existing = userDao.getUserByPhone(phone)
-        val defaultTenant = if (phone.endsWith("2") || phone.endsWith("5")) "tenant_عدن_صيدلة" else "tenant_صنعاء_وسط"
-        
+        val defaultTenant = if (phone.endsWith("2") || phone.endsWith("5") || requestedBusinessType == "pharmacy") "tenant_عدن_صيدلة" else "tenant_صنعاء_وسط"
+
         if (existing != null) {
-            val updated = existing.copy(role = role)
+            val effectiveBusinessType = when (actualRole) {
+                "merchant" -> if (requestedBusinessType == "pharmacy") "pharmacy" else if (requestedBusinessType == "marketplace") "marketplace" else existing.businessType.ifBlank { "marketplace" }
+                "driver" -> "delivery"
+                "admin" -> "admin"
+                else -> "none"
+            }
+            val fallbackName = when (effectiveBusinessType) {
+                "pharmacy" -> "صيدلية غير مكتملة البيانات"
+                "marketplace" -> "تاجر سوق غير مكتمل البيانات"
+                "delivery" -> "كابتن توصيل"
+                "admin" -> "مدير النظام"
+                else -> "عميل المجمع"
+            }
+            val updated = existing.copy(
+                role = actualRole,
+                businessType = effectiveBusinessType,
+                displayName = existing.displayName.ifBlank { fallbackName },
+                fullName = existing.fullName.ifBlank { fallbackName },
+                businessName = if (actualRole == "merchant") existing.businessName.ifBlank { fallbackName } else existing.businessName,
+                contactPhone = existing.contactPhone.ifBlank { phone },
+                approvalStatus = if (actualRole == "admin" || actualRole == "client") "approved" else existing.approvalStatus.ifBlank { "incomplete" }
+            )
             userDao.updateUser(updated)
             return updated
         }
-        val defaultBalance = when (role) {
-            "driver" -> 6000.0 // Pre-charged motor drivers balance for commissions
+        val defaultBalance = when (actualRole) {
+            "driver" -> 6000.0
             "merchant" -> 25000.0
-            else -> 12000.0 // Clients
+            else -> 12000.0
         }
-        val inferredBusinessType = when (role) {
-            "merchant" -> if (phone.endsWith("2")) "pharmacy" else "marketplace"
+        val inferredBusinessType = when (actualRole) {
+            "merchant" -> if (requestedBusinessType == "pharmacy") "pharmacy" else "marketplace"
             "driver" -> "delivery"
             "admin" -> "admin"
             else -> "none"
@@ -105,37 +138,35 @@ class PlatformRepository(
         val newUser = UserEntity(
             tenantId = defaultTenant,
             phone = phone,
-            role = role,
+            role = actualRole,
             walletBalance = defaultBalance,
             status = "active",
             fullName = inferredDisplayName,
             displayName = inferredDisplayName,
             businessType = inferredBusinessType,
-            businessName = if (role == "merchant") inferredDisplayName else "",
+            businessName = if (actualRole == "merchant") inferredDisplayName else "",
             contactPhone = phone,
             city = if (defaultTenant.contains("عدن")) "عدن" else "صنعاء",
             district = "",
             address = "",
             licenseNumber = "",
             merchantCategory = if (inferredBusinessType == "pharmacy") "pharmacy" else if (inferredBusinessType == "marketplace") "clothes" else "",
-            approvalStatus = "incomplete",
+            approvalStatus = if (actualRole == "admin" || actualRole == "client") "approved" else "incomplete",
             isProfileComplete = false
         )
         val id = userDao.insertUser(newUser).toInt()
 
-        // Write introductory ledger record (Infrastructural Double Entry)
         ledgerEntryDao.insertLedgerEntry(
             LedgerEntryEntity(
                 tenantId = defaultTenant,
                 debitWalletId = id,
-                creditWalletId = -1, // Sourced externally
+                creditWalletId = -1,
                 amount = defaultBalance,
                 narrative = "رصيد افتتاح المحفظة التأسيسي"
             )
         )
 
-        // Enqueue Outbox event to notify centralized platform of login
-        enqueueOutboxEvent(defaultTenant, "USER_REGISTERED_AUTH", "{ userId: $id, phone: '$phone', role: '$role' }")
+        enqueueOutboxEvent(defaultTenant, "USER_REGISTERED_AUTH", "{ userId: $id, phone: '$phone', role: '$actualRole', businessType: '$inferredBusinessType' }")
 
         return newUser.copy(id = id)
     }

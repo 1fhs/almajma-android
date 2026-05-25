@@ -454,31 +454,58 @@ fun AuthScreenAr(viewModel: PlatformViewModel) {
                 textAlign = TextAlign.Start
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                RoleSelectionCard(
-                    title = "زبون مستهلك",
-                    desc = "شراء ودواء وتوصيل",
-                    active = selectedAuthRole == "client",
-                    modifier = Modifier.weight(1f),
-                    onClick = { viewModel.selectedAuthRole.value = "client" }
-                )
-                RoleSelectionCard(
-                    title = "تاجر وصيدلي",
-                    desc = "استقبال طلبات وتفعيل بيع",
-                    active = selectedAuthRole == "merchant",
-                    modifier = Modifier.weight(1f),
-                    onClick = { viewModel.selectedAuthRole.value = "merchant" }
-                )
-                RoleSelectionCard(
-                    title = "سائق ميموند",
-                    desc = "توصيل وطلبات معلقة",
-                    active = selectedAuthRole == "driver",
-                    modifier = Modifier.weight(1f),
-                    onClick = { viewModel.selectedAuthRole.value = "driver" }
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RoleSelectionCard(
+                        title = "عميل",
+                        desc = "صيدليات + سوق + مشاهير + توصيل",
+                        active = selectedAuthRole == "client",
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.selectedAuthRole.value = "client" }
+                    )
+                    RoleSelectionCard(
+                        title = "صيدلية",
+                        desc = "أدوية، وصفات، ترخيص، عروض",
+                        active = selectedAuthRole == "pharmacy",
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.selectedAuthRole.value = "pharmacy" }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RoleSelectionCard(
+                        title = "تاجر سوق",
+                        desc = "ملابس، جملة، منتجات عامة",
+                        active = selectedAuthRole == "market_merchant",
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.selectedAuthRole.value = "market_merchant" }
+                    )
+                    RoleSelectionCard(
+                        title = "سائق",
+                        desc = "طلبات توصيل مستقلة ودواء جاهز",
+                        active = selectedAuthRole == "driver",
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.selectedAuthRole.value = "driver" }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RoleSelectionCard(
+                        title = "أدمن",
+                        desc = "لوحة الإدارة، الاعتماد، التقارير",
+                        active = selectedAuthRole == "admin",
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.selectedAuthRole.value = "admin" }
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
