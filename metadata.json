@@ -1,0 +1,6 @@
+{
+  "name": "Al-Majma'",
+  "description": "منصة اقتصادية تشاركية هجينة (توصيل، أدوية، تجارة، حجوزات) تعمل في بيئة شبكة هجينة (مع/بدون إنترنت).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

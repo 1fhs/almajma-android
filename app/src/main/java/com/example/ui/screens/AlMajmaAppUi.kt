@@ -1,0 +1,4978 @@
+package com.example.ui.screens
+
+import android.widget.Toast
+import kotlinx.coroutines.launch
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.database.*
+import com.example.data.network.NetworkMode
+import com.example.ui.PlatformViewModel
+
+@Composable
+fun AlMajmaAppUi(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
+    val networkMode by viewModel.networkMode.collectAsStateWithLifecycle()
+    val latencyMs by viewModel.latencyMs.collectAsStateWithLifecycle()
+    val meshPeersNearby by viewModel.meshPeersNearby.collectAsStateWithLifecycle()
+
+    val clientScreen by viewModel.clientScreen.collectAsStateWithLifecycle()
+    val merchantScreen by viewModel.merchantScreen.collectAsStateWithLifecycle()
+    val driverScreen by viewModel.driverScreen.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("al_majma_root_scaffold")
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            if (currentUser == null) {
+                // Auth system screen
+                AuthScreenAr(viewModel = viewModel)
+            } else {
+                // Render the selected Profile (4-apps-in-1)
+                Crossfade(targetState = currentRole, label = "RoleAppTransition") { role ->
+                    when (role) {
+                        "client" -> ClientAppRoot(viewModel = viewModel, currentScreen = clientScreen)
+                        "merchant" -> MerchantAppRoot(viewModel = viewModel, currentScreen = merchantScreen)
+                        "driver" -> DriverAppRoot(viewModel = viewModel, currentScreen = driverScreen)
+                        "admin" -> SuperAdminDashboardScreen(viewModel = viewModel)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ARABIC TRANSLATION HELPERS
+fun getRoleArName(role: String): String = when (role) {
+    "client" -> "الزبون"
+    "merchant" -> "المستثمر والتاجر"
+    "driver" -> "كابتن التوصيل"
+    "admin" -> "مدير النظام"
+    else -> role
+}
+
+fun getNetworkArName(mode: NetworkMode): String = when (mode) {
+    NetworkMode.ONLINE -> "إنترنت عادي السيرفر الموحد"
+    NetworkMode.ZERO_DATA -> "توفير البيانات (اتصال APN مغلق)"
+    NetworkMode.OFFLINE_MESH -> "الشبكة المحلية (Wi-Fi Mesh / BLE)"
+}
+
+
+fun orderStatusAr(status: String): String = when (status) {
+    "waiting_offers" -> "بانتظار عروض الصيدليات"
+    "offer_received" -> "وصل عرض صيدلية"
+    "pending" -> "قيد التفاوض"
+    "funds_frozen" -> "أموال مجمدة بالضمان"
+    "preparing" -> "قيد التجهيز"
+    "ready" -> "جاهز للتسليم"
+    "delivering" -> "قيد التوصيل"
+    "completed" -> "مكتمل ومغلق"
+    "cancelled" -> "ملغي"
+    "disputed" -> "نزاع مفتوح"
+    "refunded" -> "مسترجع للعميل"
+    "CONFLICT" -> "تعارض سعر"
+    else -> status
+}
+
+@Composable
+fun statusBadgeContainerColor(status: String): Color = when (status) {
+    "funds_frozen", "ready", "preparing", "delivering" -> MaterialTheme.colorScheme.secondary.copy(0.20f)
+    "completed" -> MaterialTheme.colorScheme.primary.copy(0.20f)
+    "offer_received", "waiting_offers", "pending" -> MaterialTheme.colorScheme.surfaceVariant
+    "CONFLICT", "disputed", "refunded", "cancelled" -> MaterialTheme.colorScheme.error.copy(0.16f)
+    else -> MaterialTheme.colorScheme.surfaceVariant
+}
+
+@Composable
+fun statusBadgeTextColor(status: String): Color = when (status) {
+    "funds_frozen", "ready", "preparing", "delivering" -> MaterialTheme.colorScheme.secondary
+    "completed" -> MaterialTheme.colorScheme.primary
+    "CONFLICT", "disputed", "refunded", "cancelled" -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+fun OrderLifecycleStrip(status: String) {
+    val steps = listOf(
+        "waiting_offers" to "طلب",
+        "offer_received" to "عرض",
+        "funds_frozen" to "ضمان",
+        "preparing" to "تجهيز",
+        "ready" to "جاهز",
+        "delivering" to "توصيل",
+        "completed" to "إغلاق"
+    )
+    val activeIndex = steps.indexOfFirst { it.first == status }.let { if (it < 0 && status == "pending") 0 else it }
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        items(steps) { (key, label) ->
+            val idx = steps.indexOfFirst { it.first == key }
+            val done = activeIndex >= 0 && idx <= activeIndex
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (done) MaterialTheme.colorScheme.primary.copy(0.16f) else MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, if (key == status) MaterialTheme.colorScheme.primary else Color.Transparent)
+            ) {
+                Text(
+                    text = label,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    fontSize = 10.sp,
+                    fontWeight = if (done) FontWeight.Bold else FontWeight.Normal,
+                    color = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// CENTRAL COCKPIT PANEL FOR SIMULATING NETWORKS & ROLES
+// ==========================================
+@Composable
+fun SimulationCockpitPanel(
+    currentRole: String,
+    networkMode: NetworkMode,
+    latencyMs: Int,
+    peersNearby: Int,
+    onRoleSwitch: (String) -> Unit,
+    onNetworkSwitch: (NetworkMode) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Network simulator row
+            Text(
+                text = "📱 لوحة تفاعلية لبيئة الشبكة الهجينة والملفات والمستشعرات",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Connection mode buttons
+                NetworkModeChip(
+                    title = "إنترنت عام",
+                    active = networkMode == NetworkMode.ONLINE,
+                    icon = Icons.Default.Share,
+                    color = MaterialTheme.colorScheme.primary,
+                    onClick = { onNetworkSwitch(NetworkMode.ONLINE) }
+                )
+                NetworkModeChip(
+                    title = "APN مخفَّف",
+                    active = networkMode == NetworkMode.ZERO_DATA,
+                    icon = Icons.Default.Refresh,
+                    color = MaterialTheme.colorScheme.secondary,
+                    onClick = { onNetworkSwitch(NetworkMode.ZERO_DATA) }
+                )
+                NetworkModeChip(
+                    title = "شبكة Mesh",
+                    active = networkMode == NetworkMode.OFFLINE_MESH,
+                    icon = Icons.Default.Settings,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    onClick = { onNetworkSwitch(NetworkMode.OFFLINE_MESH) }
+                )
+            }
+
+            Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.surfaceVariant)
+
+            // Dynamic live network latency/mesh tag
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when (networkMode) {
+                                    NetworkMode.ONLINE -> MaterialTheme.colorScheme.primary
+                                    NetworkMode.ZERO_DATA -> MaterialTheme.colorScheme.secondary
+                                    NetworkMode.OFFLINE_MESH -> MaterialTheme.colorScheme.tertiary
+                                }
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = when (networkMode) {
+                            NetworkMode.ONLINE -> "متصل مركزي - سرعة الاستجابة: $latencyMs ملي ثانية"
+                            NetworkMode.ZERO_DATA -> "وضع توفير الرصيد (نصوص مضغوطة وبدون صور)"
+                            NetworkMode.OFFLINE_MESH -> "وضع الأوفلاين - أجهزة مجاورة بالـ Bluetooth: $peersNearby"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Account role shortcut
+                Row {
+                    RoleSwitchButton(label = "زبون", active = currentRole == "client", onClick = { onRoleSwitch("client") })
+                    Spacer(modifier = Modifier.width(4.dp))
+                    RoleSwitchButton(label = "تاجر", active = currentRole == "merchant", onClick = { onRoleSwitch("merchant") })
+                    Spacer(modifier = Modifier.width(4.dp))
+                    RoleSwitchButton(label = "سائق", active = currentRole == "driver", onClick = { onRoleSwitch("driver") })
+                    Spacer(modifier = Modifier.width(4.dp))
+                    RoleSwitchButton(label = "مدير", active = currentRole == "admin", onClick = { onRoleSwitch("admin") })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun NetworkModeChip(
+    title: String,
+    active: Boolean,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (active) color.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (active) color else Color.Transparent),
+        modifier = Modifier
+            .height(34.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = title, tint = if (active) color else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(text = title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (active) color else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+fun RoleSwitchButton(label: String, active: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.height(26.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (active) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+
+// ==========================================
+// SCREEN 1: THE LOCALIZED SYSTEM AUTH (تسجيل الدخول والتحقق الآمن)
+// ==========================================
+@Composable
+fun AuthScreenAr(viewModel: PlatformViewModel) {
+    val phoneInput by viewModel.phoneInput.collectAsStateWithLifecycle()
+    val otpInput by viewModel.otpInput.collectAsStateWithLifecycle()
+    val isWaitingForOtp by viewModel.isWaitingForOtp.collectAsStateWithLifecycle()
+    val selectedAuthRole by viewModel.selectedAuthRole.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState())
+            .testTag("auth_screen_container"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(90.dp)
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF10B981).copy(0.3f), Color.Transparent)
+                        ),
+                        radius = size.width
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.almajma_logo_1779666748298),
+                contentDescription = "شعار التطبيق",
+                modifier = Modifier.size(64.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "مَجْمَع الضمان والاقتصاد الهجين",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "نظام التبادل والخدمات اللامركزي مع/بدون إنترنت",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        if (!isWaitingForOtp) {
+            // Phone entry
+            OutlinedTextField(
+                value = phoneInput,
+                onValueChange = { viewModel.phoneInput.value = it },
+                label = { Text("أدخل رقم هاتفك الجوال (77xxxxxxx)", textAlign = TextAlign.End) },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = "هاتف", tint = MaterialTheme.colorScheme.primary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("phone_input_field")
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Account type selector during signup
+            Text(
+                text = "اختر طبيعة حساب الدخول للتجربة:",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                textAlign = TextAlign.Start
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                RoleSelectionCard(
+                    title = "زبون مستهلك",
+                    desc = "شراء ودواء وتوصيل",
+                    active = selectedAuthRole == "client",
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.selectedAuthRole.value = "client" }
+                )
+                RoleSelectionCard(
+                    title = "تاجر وصيدلي",
+                    desc = "استقبال طلبات وتفعيل بيع",
+                    active = selectedAuthRole == "merchant",
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.selectedAuthRole.value = "merchant" }
+                )
+                RoleSelectionCard(
+                    title = "سائق ميموند",
+                    desc = "توصيل وطلبات معلقة",
+                    active = selectedAuthRole == "driver",
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.selectedAuthRole.value = "driver" }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = { viewModel.requestOtp() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .testTag("request_otp_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("المتابعة والتسجيل 🚀", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+            }
+
+        } else {
+            // Waiting for OTP Verification simulation
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "محاكاة رمز التأكيد الموجه للجوال $phoneInput",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "الرمز الافتراضي للتجربة هو: 1234",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = otpInput,
+                onValueChange = { viewModel.otpInput.value = it },
+                label = { Text("رمز OTP المكون من 4 أرقام") },
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "رمز التأكيد", tint = MaterialTheme.colorScheme.primary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("otp_input_field")
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = { viewModel.verifyLoginOtp() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .testTag("confirm_login_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("الدخول للمنصة والمزامنة", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
+                onClick = { viewModel.isWaitingForOtp.value = false },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("رجوع لتعديل الرقم", color = MaterialTheme.colorScheme.secondary)
+            }
+        }
+    }
+}
+
+@Composable
+fun RoleSelectionCard(
+    title: String,
+    desc: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(110.dp)
+            .clickable { onClick() }
+            .border(
+                width = 1.5.dp,
+                color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(12.dp)
+            ),
+        colors = CardDefaults.cardColors(
+            containerColor = if (active) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                desc,
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                lineHeight = 11.sp
+            )
+        }
+    }
+}
+
+
+@Composable
+fun AlMajmaTopBar(viewModel: PlatformViewModel, titleRole: String) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
+    val unreadCount by viewModel.unreadNotificationCount.collectAsStateWithLifecycle()
+    
+    val topBarColor = when(currentRole) {
+        "client" -> MaterialTheme.colorScheme.primary
+        "merchant" -> MaterialTheme.colorScheme.secondary
+        "driver" -> MaterialTheme.colorScheme.tertiary
+        "admin" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primaryContainer
+    }
+    val contentColor = Color.White
+    
+    // Header for status bar and title
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(topBarColor)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .statusBarsPadding(), // Support edge-to-edge
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(titleRole, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = contentColor)
+            Text("مرحباً بك: ${currentUser?.phone ?: ""} | رصيد المحفظة: ${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "0.00"} ريال", fontSize = 11.sp, color = contentColor.copy(0.85f))
+        }
+        
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (unreadCount > 0) {
+                Surface(
+                    color = contentColor.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.clickable { viewModel.markMyNotificationsRead() }
+                ) {
+                    Text(
+                        text = "تنبيهات $unreadCount",
+                        color = contentColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+            }
+            IconButton(
+                onClick = { 
+                    when(currentRole) {
+                        "client" -> viewModel.navigateClientTo("profile")
+                        "merchant" -> viewModel.navigateMerchantTo("profile")
+                        "driver" -> viewModel.navigateDriverTo("profile")
+                    }
+                },
+                modifier = Modifier
+                    .background(contentColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                    .size(36.dp)
+            ) {
+                Icon(Icons.Default.Person, contentDescription = "الملف الشخصي", tint = contentColor, modifier = Modifier.size(20.dp))
+            }
+            
+            IconButton(
+                onClick = { viewModel.logout() },
+                modifier = Modifier
+                    .background(contentColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                    .size(36.dp)
+            ) {
+                Icon(Icons.Default.ExitToApp, contentDescription = "تسجيل الخروج", tint = contentColor, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+// ==========================================
+// FIRST APPLICATION HIERARCHY: CLIENT PERSPECTIVE (زبون المجمع)
+// ==========================================
+@Composable
+fun ClientAppRoot(viewModel: PlatformViewModel, currentScreen: String) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        AlMajmaTopBar(viewModel = viewModel, titleRole = "واجهة عميل المجمع 🌟")
+        // Client specific screens
+        AnimatedContent(
+            targetState = currentScreen,
+            label = "ClientScreenTransition",
+            modifier = Modifier.weight(1f)
+        ) { screen ->
+            when (screen) {
+                "home" -> ClientHomeScreen(viewModel = viewModel)
+                "ride" -> ClientRideHailingScreen(viewModel = viewModel)
+                "pharmacy" -> ClientPharmacyScreen(viewModel = viewModel)
+                "Souk" -> ClientSoukScreen(viewModel = viewModel)
+                "chat" -> ChatRoomScreen(viewModel = viewModel)
+                "wallet" -> WalletScreenAr(viewModel = viewModel)
+                "profile" -> ProfileScreen(viewModel = viewModel)
+                else -> ClientHomeScreen(viewModel = viewModel)
+            }
+        }
+
+        // Inner Sub Bottom-Bar for Client navigation
+        ClientBottomNav(
+            currentScreen = currentScreen,
+            onNav = { viewModel.navigateClientTo(it) }
+        )
+    }
+}
+
+@Composable
+fun ClientBottomNav(currentScreen: String, onNav: (String) -> Unit) {
+    NavigationBar(
+        modifier = Modifier.height(65.dp),
+        tonalElevation = 8.dp,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        NavigationBarItem(
+            selected = currentScreen == "home" || currentScreen == "chat",
+            onClick = { onNav("home") },
+            icon = { Icon(Icons.Default.Home, contentDescription = "الرئيسية") },
+            label = { Text("الرئيسية", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
+        )
+        NavigationBarItem(
+            selected = currentScreen == "ride",
+            onClick = { onNav("ride") },
+            icon = { Icon(Icons.Default.LocationOn, contentDescription = "طلب ناقلة") },
+            label = { Text("طلب مبرمج", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
+        )
+        NavigationBarItem(
+            selected = currentScreen == "pharmacy",
+            onClick = { onNav("pharmacy") },
+            icon = { Icon(Icons.Default.Star, contentDescription = "الأدوية") },
+            label = { Text("سوق الدواء", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
+        )
+        NavigationBarItem(
+            selected = currentScreen == "Souk",
+            onClick = { onNav("Souk") },
+            icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "السوق") },
+            label = { Text("سوق المجمع", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
+        )
+        NavigationBarItem(
+            selected = currentScreen == "wallet",
+            onClick = { onNav("wallet") },
+            icon = { Icon(Icons.Default.Person, contentDescription = "المحفظة") },
+            label = { Text("محفظتي", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
+        )
+    }
+}
+
+// ------------------------------------------
+// CLIENT SCREEN 1: CLIENT HOME DASHBOARD (اللوحة الرئيسية لزبون المجمع)
+// ------------------------------------------
+@Composable
+fun ClientHomeScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val systemConfig by viewModel.systemConfig.collectAsStateWithLifecycle()
+    val notifications by viewModel.userNotifications.collectAsStateWithLifecycle()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("client_home_scroller"),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Clear Client Application Profile Data
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.5f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("إحصائيات حسابك:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("رقم الهاتف المتصل", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(currentUser?.phone ?: "غير معروف", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("حالة النشاط", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (currentUser?.status == "active") "متصل ومفعل" else "قيد المراجعة", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Welcome and e-Wallet balance header
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(0.3f), RoundedCornerShape(16.dp)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "مرحباً بك، ${currentUser?.phone?.takeLast(4) ?: "أحمد"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "رصيد المحفظة الآمنة",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Text(
+                            text = "${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "12,000.00"} ريال يمني",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Surface(
+                        onClick = { viewModel.navigateClientTo("wallet") },
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.height(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Add, contentDescription = "شحن", tint = Color.Black)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("إيداع سريع", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.Black)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+        // Dynamic Server-driven Promo Banner notice
+        if (systemConfig.isPromoBannerVisible && systemConfig.promoBannerText.isNotBlank()) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(0.12f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = "إعلان", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = systemConfig.promoBannerText,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+
+
+        if (notifications.isNotEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(0.10f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(0.35f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("آخر التنبيهات التشغيلية", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+                            TextButton(onClick = { viewModel.markMyNotificationsRead() }) { Text("تعليم كمقروء", fontSize = 11.sp) }
+                        }
+                        notifications.take(3).forEach { n ->
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Text(n.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (n.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                Text(n.body, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+            item { Spacer(modifier = Modifier.height(12.dp)) }
+        }
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+        // Division marketplace grid (Re-arranged Server-Driven UI)
+        item {
+            Text(
+                text = systemConfig.appTitle,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        item {
+            val orderList = remember(systemConfig.marketplaceOrder) {
+                systemConfig.marketplaceOrder.split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+            }
+            val chunks = orderList.chunked(2)
+            chunks.forEach { chunk ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    chunk.forEach { serviceId ->
+                        when (serviceId) {
+                            "ride" -> ServiceBox(
+                                title = systemConfig.rideLabel,
+                                desc = "توصيل / مساومة فورية",
+                                icon = Icons.Default.LocationOn,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.navigateClientTo("ride") }
+                            )
+                            "pharmacy" -> ServiceBox(
+                                title = systemConfig.pharmacyLabel,
+                                desc = "بحث عكسي ومقارنة دواء",
+                                icon = Icons.Default.Star,
+                                color = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.navigateClientTo("pharmacy") }
+                            )
+                            "clothing" -> ServiceBox(
+                                title = systemConfig.clothingLabel,
+                                desc = "سوق محلي مخفض للمساومة",
+                                icon = Icons.Default.ShoppingCart,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.navigateClientTo("Souk") }
+                            )
+                            "wholesale", "wholesale_souk" -> ServiceBox(
+                                title = "السلع والتموين بالجملة",
+                                desc = "طلب أغذية وبذور وسلع بالضمان",
+                                icon = Icons.Default.ShoppingCart,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.navigateClientTo("Souk") }
+                            )
+                            "wallet" -> ServiceBox(
+                                title = "المحفظة والضمان اللامركزي",
+                                desc = "تتبع الصدقات وعمولات المحفظة",
+                                icon = Icons.Default.Person,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.navigateClientTo("wallet") }
+                            )
+                        }
+                    }
+                    if (chunk.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+
+        // Live Escrow tracking panel
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🔔 تتبع الضمان المالي والطلبات النشطة (Escrow)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "الكود السري مطلوب عند اللقاء",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        val clientOrders = orders.filter { it.clientId == (currentUser?.id ?: -1) }
+        if (clientOrders.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Box(modifier = Modifier.padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "لا توجد أي طلبات نشطة حالياً. اختر خدمة بالأعلى لبدء الطلب والمساومة الفورية.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        } else {
+            items(clientOrders) { order ->
+                OrderTrackingCard(
+                    order = order,
+                    viewModel = viewModel,
+                    onClick = { viewModel.selectOrderForChat(order.id) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun ServiceBox(
+    title: String,
+    desc: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(115.dp)
+            .clickable { onClick() }
+            .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(color.copy(0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = title, tint = color, modifier = Modifier.size(20.dp))
+            }
+
+            Column {
+                Text(text = title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+fun OrderTrackingCard(order: OrderEntity, viewModel: PlatformViewModel, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .border(
+                width = 1.dp,
+                color = when (order.status) {
+                    "funds_frozen", "preparing", "ready", "delivering" -> MaterialTheme.colorScheme.secondary
+                    "completed" -> MaterialTheme.colorScheme.primary
+                    "CONFLICT", "disputed", "refunded", "cancelled" -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                },
+                shape = RoundedCornerShape(12.dp)
+            )
+            .testTag("track_card_${order.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Category Tag
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = when (order.category) {
+                            "medicine" -> "💊 دواء"
+                            "ride" -> "🏍️ موتور تفاوضي"
+                            else -> "🛍️ سوق المجمع"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Escrow Status Badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(statusBadgeContainerColor(order.status))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = orderStatusAr(order.status),
+                        color = statusBadgeTextColor(order.status),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = order.productName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (order.status == "CONFLICT") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            OrderLifecycleStrip(order.status)
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "سعر الطلب الأصلي: ${order.originalPriceAtRequest} ريال",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "أجر الناقل: ${order.deliveryFee} ريال",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (order.status == "CONFLICT") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(0.8f))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "⚠️ تباين الأسعار: تم رصد تحديث للسعر من الصيدلية في السيرفر بسبب تغييرات التسعير الميدانية.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("السعر القديم: ${order.originalPriceAtRequest} ريال", fontSize = 11.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+                                Text("السعر الجديد: ${order.serverUpdatedPriceConflict} ريال", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                            }
+                            Button(
+                                onClick = { viewModel.resolveOrderPriceConflict(order.id) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            ) {
+                                Text("موافق وتثبيت الالتزام ✓", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (order.category == "medicine" && order.merchantId != null && order.status in listOf("pending", "offer_received") && order.totalPrice > 0.0) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(0.10f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.35f))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "💊 عرض صيدلية جاهز للتأكيد",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("سعر الدواء: ${Money.formatMinor(order.totalPriceMinor)} ريال", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("الإجمالي مع التوصيل: ${Money.formatMinor(order.totalPriceMinor + order.deliveryFeeMinor)} ريال", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Button(
+                                onClick = { viewModel.acceptMerchantQuote(order.id) },
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            ) {
+                                Text("قبول وتجميد الضمان ✓", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            if (order.status in listOf("waiting_offers", "offer_received", "funds_frozen", "preparing", "ready", "delivering")) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (order.status in listOf("waiting_offers", "offer_received", "funds_frozen")) {
+                        OutlinedButton(
+                            onClick = { viewModel.cancelOrderAndRefund(order.id, "إلغاء من العميل قبل اكتمال التسليم") },
+                            modifier = Modifier.weight(1f).height(34.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) { Text("إلغاء/استرجاع", fontSize = 10.sp) }
+                    }
+                    if (order.status in listOf("funds_frozen", "preparing", "ready", "delivering")) {
+                        Button(
+                            onClick = { viewModel.openOrderDispute(order.id, "مشكلة في الطلب", "تم فتح نزاع من بطاقة الطلب لمراجعة الإدارة.") },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error.copy(0.85f)),
+                            modifier = Modifier.weight(1f).height(34.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) { Text("فتح نزاع", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+
+            Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.surfaceVariant)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Secret Release Code
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Lock, contentDescription = "قفل", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "كود استلام القيمة للناقل: ",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = order.otpReleaseCode,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+
+                // Chat link
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (order.status != "completed") "فتح المساومة وغرفة الأمان" else "سجل التفاوض",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "دخول",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(14.dp)
+                    )
+                }
+            }
+
+            if (order.status == "completed") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Divider(color = MaterialTheme.colorScheme.surfaceVariant.copy(0.5f))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                var isFeedbackExpanded by remember { mutableStateOf(false) }
+                var ratingVal by remember { mutableStateOf(5) }
+                var selectedTag by remember { mutableStateOf("") }
+                var customComment by remember { mutableStateOf("") }
+                var isSubmitted by remember { mutableStateOf(false) }
+
+                if (!isSubmitted) {
+                    if (!isFeedbackExpanded) {
+                        Button(
+                            onClick = { isFeedbackExpanded = true },
+                            modifier = Modifier.fillMaxWidth().height(32.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(0.12f))
+                        ) {
+                            Text("⭐ قيم كابتن التوصيل والتاجر (التقييم مشروط بالطلب)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(0.3f)).padding(8.dp)) {
+                            Text("تقييم متبادل لحفظ الثقة والضمان اللامركزي:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            
+                            // Stars selector
+                            Row(modifier = Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                (1..5).forEach { star ->
+                                    Icon(
+                                        imageVector = if (star <= ratingVal) Icons.Default.Star else Icons.Default.FavoriteBorder,
+                                        contentDescription = "Star",
+                                        tint = if (star <= ratingVal) MaterialTheme.colorScheme.secondary else Color.Gray,
+                                        modifier = Modifier.size(22.dp).clickable { ratingVal = star }
+                                    )
+                                }
+                            }
+
+                            // Quick Tags Chips
+                            Text("خيارات سريعة:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val quickTags = when (order.category) {
+                                "medicine" -> listOf("دواء أصلي بالكامل", "سعر مبرر وممتاز", "أمان في التوصيل", "استجابة سريعة")
+                                "ride" -> listOf("سرعة الوصول", "سياقة حذرة آمنة", "مطابق للأجر التفاوضي", "أمين ومحترم")
+                                else -> listOf("جودة مطابقة", "سعر منخفض ومناسب", "تغليف مبرشم ونظيف", "أموال معادة بالدقة")
+                            }
+
+                            LazyRow(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(quickTags) { tag ->
+                                    Surface(
+                                        onClick = { selectedTag = tag },
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (selectedTag == tag) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(0.3f))
+                                    ) {
+                                        Text(tag, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // Custom Comment Text Field
+                            OutlinedTextField(
+                                value = customComment,
+                                onValueChange = { customComment = it },
+                                label = { Text("تعليق تفصيلي (اختياري)...", fontSize = 10.sp) },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                textStyle = MaterialTheme.typography.bodySmall
+                            )
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        val reviewerId = order.clientId
+                                        val revieweeId = order.driverId ?: order.merchantId ?: 1
+                                        viewModel.submitUserReview(
+                                            orderId = order.id,
+                                            reviewerId = reviewerId,
+                                            revieweeId = revieweeId,
+                                            rating = ratingVal,
+                                            tags = selectedTag,
+                                            comment = customComment
+                                        )
+                                        isSubmitted = true
+                                    },
+                                    modifier = Modifier.weight(1f).height(32.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("تأكيد التقييم ✓", color = Color.Black, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { isFeedbackExpanded = false },
+                                    modifier = Modifier.weight(0.5f).height(32.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("إلغاء", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = "Submitted", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("تم تسجيل تقييمكم كطرف أول في العقد المالي بنجاح! شكراً لك.", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------
+// CLIENT SCREEN 2: RIDE HAILING & BARGAINING (طلب موتور - الحارات ومساومة الأجر)
+// ------------------------------------------
+@Composable
+fun ClientRideHailingScreen(viewModel: PlatformViewModel) {
+    val networkMode by viewModel.networkMode.collectAsStateWithLifecycle()
+    var startingPoint by remember { mutableStateOf("حارة اللقية") }
+    var destinationPoint by remember { mutableStateOf("جولة السفارة") }
+    var userOfferPriceInput by remember { mutableStateOf("1500") }
+    var paymentMethod by remember { mutableStateOf("wallet") } // wallet, cash
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .testTag("ride_screen_container")
+    ) {
+        Text(
+            text = "🏍️ طلب ناقل أو موتور بالمساومة والشبكة الهجينة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // MOCK MAP WITH OFFLINE FALLBACK AS REQUESTED IN PRD
+        Text(
+            text = "محاكاة خريطة الإحداثيات الجغرافية:",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (networkMode == NetworkMode.OFFLINE_MESH || networkMode == NetworkMode.ZERO_DATA) {
+                // TEXT ONLY / NAMES FOR OFFLINE
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(12.dp)) {
+                    Icon(Icons.Default.Warning, contentDescription = "أوفلاين", tint = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "تم تفعيل دليل أسماء الحارات لتوفير استهلاك الخارطة النشطة",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "الدليل الجغرافي النشط: [حشيش - حدة - اللقية - مسيك - حارة أ إلى ب]",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                // SIMULATOR MAP VECTOR GAUGE
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawBehind {
+                            // Draw mock grid and destination line
+                            drawLine(
+                                color = Color(0xFF10B981),
+                                start = Offset(50f, 150f),
+                                end = Offset(size.width - 50f, size.height - 100f),
+                                strokeWidth = 5f
+                            )
+                            drawCircle(
+                                color = Color(0xFFFBBF24),
+                                radius = 20f,
+                                center = Offset(50f, 150f)
+                            )
+                            drawCircle(
+                                color = Color(0xFF22D3EE),
+                                radius = 25f,
+                                center = Offset(size.width - 50f, size.height - 100f)
+                            )
+                        }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("📍 نقطة الانطلاق: حارة اللقية", fontSize = 10.sp, color = Color.White, modifier = Modifier.background(Color.Black.copy(0.6f)).padding(2.dp))
+                        Text("🏁 الوجهة: جولة السفارة", fontSize = 10.sp, color = Color.White, modifier = Modifier.align(Alignment.End).background(Color.Black.copy(0.6f)).padding(2.dp))
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Input Fields
+        OutlinedTextField(
+            value = startingPoint,
+            onValueChange = { startingPoint = it },
+            label = { Text("موقع الانطلاق (الحارة / المعلم)") },
+            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = "الانطلاق", tint = MaterialTheme.colorScheme.primary) },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = destinationPoint,
+            onValueChange = { destinationPoint = it },
+            label = { Text("جهة الوصول المطلوبة") },
+            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = "الوصول", tint = MaterialTheme.colorScheme.tertiary) },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // BARGAIN PRICE FIELD
+        OutlinedTextField(
+            value = userOfferPriceInput,
+            onValueChange = { userOfferPriceInput = it },
+            label = { Text("كم تود دفع كمقترح معروض؟ (المساومة)") },
+            leadingIcon = { Icon(Icons.Default.ShoppingCart, contentDescription = "مساومة", tint = MaterialTheme.colorScheme.secondary) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            suffix = { Text("ريال يمني") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("ride_price_bargain")
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // PAYMENT TYPE SELECTOR
+        Text("طريقة تجميد الضمان المالي:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { paymentMethod = "wallet" }) {
+                RadioButton(selected = paymentMethod == "wallet", onClick = { paymentMethod = "wallet" })
+                Text("المحفظة الإلكترونية", fontSize = 12.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { paymentMethod = "cash" }) {
+                RadioButton(selected = paymentMethod == "cash", onClick = { paymentMethod = "cash" })
+                Text("نقد كاش (توقيع اللقاء)", fontSize = 12.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                val price = userOfferPriceInput.toDoubleOrNull() ?: 1500.0
+                viewModel.requestRide(price, "$startingPoint إلى $destinationPoint", paymentMethod)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .testTag("submit_ride_request_button"),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text(
+                text = if (networkMode == NetworkMode.OFFLINE_MESH) "بث الطلب الفوري عبر شبكة Mesh الهجينة 📡" else "إرسال طلب تفاوض الموتور",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+    }
+}
+
+
+// ------------------------------------------
+// CLIENT SCREEN 3: PHARMACY MEDICINE REVERSE SEARCH (البحث العكسي عن الدواء والروشتة)
+// ------------------------------------------
+@Composable
+fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
+    var searchMedicineText by remember { mutableStateOf("حبوب أنسولين ميكستارد") }
+    var mockImageAttached by remember { mutableStateOf(false) }
+    var isSimulatingCamera by remember { mutableStateOf(false) }
+    var runningOcrAudit by remember { mutableStateOf(false) }
+    var ocrAuditFinished by remember { mutableStateOf(false) }
+
+    val products by viewModel.products.collectAsStateWithLifecycle()
+    val medicines = products.filter { it.category == "medicine" }
+
+    if (isSimulatingCamera) {
+        // SIMULATED CAMERA SHUTTER DIALOG
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("📸 كاميرا المجمع: التقاط صورة الروشتة الطبية", color = Color.White, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(10.dp))
+                // Shutter animation placeholder
+                Box(
+                    modifier = Modifier
+                        .size(200.dp)
+                        .border(2.dp, Color.White, RoundedCornerShape(8.dp))
+                        .background(Color.DarkGray)
+                ) {
+                    Box(modifier = Modifier.align(Alignment.Center)) {
+                        Text("وجه العدسة على الروشتة 📝", color = Color.LightGray, fontSize = 12.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = {
+                        mockImageAttached = true
+                        ocrAuditFinished = false
+                        isSimulatingCamera = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("التقاط الصورة 🔘", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .testTag("pharmacy_screen_container")
+        ) {
+            Text(
+                text = "💊 نظام الاستعلام العكسي وبث طلبات الدواء للصيدليات",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Text search input
+            OutlinedTextField(
+                value = searchMedicineText,
+                onValueChange = { searchMedicineText = it },
+                label = { Text("ابحث أو اكتب اسم الدواء الذي تبحث عنه") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "بحث", tint = MaterialTheme.colorScheme.primary) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Attachment bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { isSimulatingCamera = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1.5f).height(48.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, contentDescription = "كاميرا", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (mockImageAttached) "تغيير الروشتة المرفقة 📸" else "تصوير الروشتة الطبية 📸", fontSize = 11.sp)
+                    }
+                }
+
+                if (mockImageAttached) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(0.2f))
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .weight(1f)
+                    ) {
+                        Text("تم الإرفاق بنجاح ✓", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+
+            // Interactive OCR safety audit trigger
+            if (mockImageAttached && !ocrAuditFinished) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("🛡️ تدقيق سلامة الروشتة الممسوحة (OCR Dawaa Audit)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text("يقوم النظام اللامركزي بمطابقة الوصفة مع سحب الأدوية النشط بالجمهورية وفترات الصلاحية قبل البث المفتوح للأمان المالي والدواء.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(0.8f))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (runningOcrAudit) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("جاري فك الترميز ومطابقة الباتشات والـ Expiry...", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    runningOcrAudit = true
+                                    // Simulated high speed OCR parsing delay
+                                    ocrAuditFinished = false
+                                },
+                                modifier = Modifier.fillMaxWidth().height(32.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("بدء مطابقة فك الكود وفحص السحب العام 🔍", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                LaunchedEffect(runningOcrAudit) {
+                    if (runningOcrAudit) {
+                        kotlinx.coroutines.delay(1000)
+                        runningOcrAudit = false
+                        ocrAuditFinished = true
+                    }
+                }
+            }
+
+            // OCR Safety Check results card
+            if (ocrAuditFinished) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2C)),
+                    border = BorderStroke(1.dp, Color(0xFFE11D48))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = "تنبيه صحي", tint = Color(0xFFE11D48), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("تقرير مطابقة سلامة المستحضرات بالروشتة:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        Divider(color = Color.DarkGray)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        Text("1. بندول اكسترا فضي 24 حبة (Batch B-8822-EXP)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                        Text("   • تاريخ الصلاحية: آمن ومطابق (متبقي 220 يوم) ✓", fontSize = 9.sp, color = Color.LightGray)
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text("2. قطرات فيتامين د3 للأطفال (Batch B-5489-REC)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE11D48))
+                        Text("   • 🚨 إنذار حظر نشط: الباتش مسحوب وموقوف التداول بقرار الهيئة العليا للأدوية في اليمن لوجود رطوبة مجهرية بالصمام!", fontSize = 9.sp, color = Color(0xFFFDA4AF))
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF881337).copy(0.3f))
+                                .padding(6.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                        ) {
+                            Text("🔒 تم قفل تمرير البث مؤقتاً لحمايتك. أقر بوعيك واشطب الدواء الملوث للمتابعة.", fontSize = 9.sp, color = Color(0xFFFECDD3), fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Button(
+                            onClick = {
+                                ocrAuditFinished = false
+                                mockImageAttached = false
+                            },
+                            modifier = Modifier.fillMaxWidth().height(28.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("أفرغ المرفقات وأعد مسح وصفة سليمة ⚙️", fontSize = 9.sp, color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                onClick = {
+                    viewModel.requestPrescriptionDawaa(searchMedicineText, mockImageAttached)
+                    mockImageAttached = false
+                    ocrAuditFinished = false
+                },
+                enabled = !ocrAuditFinished, // Lock broadcast safely if there is recalled medicine found by OCR loop!
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .testTag("broadcast_dawaa_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = if (ocrAuditFinished) Color.DarkGray else MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = if (ocrAuditFinished) "🚨 تم إيقاف البث لوجود ملوثات بالطلبية" else "بث طبي موحد لكافة الصيدليات القريبة 📡",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Local directory catalogue list (صيدليات وصناعات)
+            Text(
+                text = "دليل الأدوية الشائعة الحالية بالمجمع:",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val currentTimestamp = System.currentTimeMillis()
+
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(medicines) { medicine ->
+                    val isExpired = medicine.expiryTimestamp < currentTimestamp
+                    val isRecalled = medicine.isRecalled
+                    val canPurchase = !isExpired && !isRecalled
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (!canPurchase) MaterialTheme.colorScheme.errorContainer.copy(0.15f) else MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1.5f)) {
+                                Text(medicine.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                Text("الموقع: ${medicine.locationName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الباتش: ${medicine.batchNumber}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f))
+
+                                if (isRecalled) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFE11D48).copy(0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                    ) {
+                                        Text("🚨 مسحوب ومحظور من هيئة الغذاء والدواء", fontSize = 9.sp, color = Color(0xFFF43F5E), fontWeight = FontWeight.Bold)
+                                    }
+                                } else if (isExpired) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFEA580C).copy(0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                    ) {
+                                        Text("⚠️ دواء منتهي الصلاحية وصالح للإتلاف", fontSize = 9.sp, color = Color(0xFFF97316), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                                Text("${medicine.price} ريال", fontWeight = FontWeight.ExtraBold, color = if (canPurchase) MaterialTheme.colorScheme.primary else Color.Gray)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Button(
+                                    onClick = { viewModel.purchaseSoukItem(medicine, null) },
+                                    enabled = canPurchase,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (canPurchase) MaterialTheme.colorScheme.primary else Color.DarkGray
+                                    ),
+                                    modifier = Modifier.height(30.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (isRecalled) "محجوب" else if (isExpired) "منتهي" else "حجز ودفع", 
+                                        fontSize = 10.sp, 
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (canPurchase) Color.Black else Color.Gray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// ------------------------------------------
+// CLIENT SCREEN 4: MARKETPLACE SHOP & BARGIN (سوق المجمع والتبادل التجاري)
+// ------------------------------------------
+@Composable
+fun ClientSoukScreen(viewModel: PlatformViewModel) {
+    val products by viewModel.products.collectAsStateWithLifecycle()
+    var selectedCategoryFilter by remember { mutableStateOf("all") } // all, clothing, wholesale
+    var showBargainingDialog by remember { mutableStateOf<ProductEntity?>(null) }
+    var bargainPriceDraft by remember { mutableStateOf("") }
+
+    val filteredProducts = products.filter {
+        it.category != "medicine" && (selectedCategoryFilter == "all" || it.category == selectedCategoryFilter)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("souk_screen_container")
+    ) {
+        Text(
+            text = "🛍️ سوق المجمع الاستهلاكلي المحلي",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Filters categories raw horizontal
+        LazyRow(modifier = Modifier.fillMaxWidth()) {
+            item {
+                FilterTabChip(title = "الكل", active = selectedCategoryFilter == "all", onClick = { selectedCategoryFilter = "all" })
+                Spacer(modifier = Modifier.width(6.dp))
+                FilterTabChip(title = "شالات وملابس", active = selectedCategoryFilter == "clothing", onClick = { selectedCategoryFilter = "clothing" })
+                Spacer(modifier = Modifier.width(6.dp))
+                FilterTabChip(title = "مخرجات وسوق الجملة", active = selectedCategoryFilter == "wholesale", onClick = { selectedCategoryFilter = "wholesale" })
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            items(filteredProducts) { item ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        // Image Mock Circle
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(85.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = when (item.category) {
+                                    "clothing" -> "🧣"
+                                    else -> "🌾"
+                                },
+                                fontSize = 32.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val catName = when(item.category) {
+                            "clothing" -> "ملابس وأزياء"
+                            "wholesale" -> "تجزئة وجملة"
+                            else -> item.category
+                        }
+                        Text(
+                            text = catName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = item.name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Text(
+                            text = item.locationName,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "${item.price} ريال يمني",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 14.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            // Buy Button
+                            Button(
+                                onClick = { viewModel.purchaseSoukItem(item, null) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(32.dp),
+                                contentPadding = PaddingValues(1.dp)
+                            ) {
+                                Text("شراء", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                            }
+
+                            // Bargain Button
+                            Button(
+                                onClick = {
+                                    showBargainingDialog = item
+                                    bargainPriceDraft = (item.price * 0.9).toInt().toString()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(32.dp),
+                                contentPadding = PaddingValues(1.dp)
+                            ) {
+                                Text("مساومة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SIMULATED BARGAINING MODAL
+    showBargainingDialog?.let { item ->
+        AlertDialog(
+            onDismissRequest = { showBargainingDialog = null },
+            title = { Text("تقديم عرض مساومة جديدة", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) },
+            text = {
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
+                    Text("المنتج: ${item.name}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("السعر الأصلي: ${item.price} ريال يمني", style = MaterialTheme.typography.bodySmall)
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = bargainPriceDraft,
+                        onValueChange = { bargainPriceDraft = it },
+                        label = { Text("السعر المقترح للشراء بالمساومة") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val prop = bargainPriceDraft.toDoubleOrNull() ?: item.price
+                        viewModel.purchaseSoukItem(item, prop)
+                        showBargainingDialog = null
+                    }
+                ) {
+                    Text("إرسال عرض لغرفة المفاوضات", color = Color.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBargainingDialog = null }) {
+                    Text("إلغاء", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun FilterTabChip(title: String, active: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (active) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (active) Color.Black else MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+
+// ==========================================
+// CENTRAL COMPONENT: THE HYBRID IN-APP CHAT & SECURE VOICE NOTES (غرف التواصل وغرف المساومة)
+// ==========================================
+@Composable
+fun ChatRoomScreen(viewModel: PlatformViewModel) {
+    val selectedOrderId by viewModel.selectedOrderId.collectAsStateWithLifecycle()
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val isRecordingSimulated by viewModel.isRecordingSimulated.collectAsStateWithLifecycle()
+    val recordingDurationSec by viewModel.recordingDurationSec.collectAsStateWithLifecycle()
+    val timeline by viewModel.selectedOrderTimeline.collectAsStateWithLifecycle()
+    val offers by viewModel.selectedOrderOffers.collectAsStateWithLifecycle()
+
+    val activeOrder = orders.find { it.id == selectedOrderId }
+    var chatTextInput by remember { mutableStateOf("") }
+
+    if (activeOrder == null) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(Icons.Default.Info, contentDescription = "لا توجد محادثة", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(42.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "لا توجد غرفة نشطة. اختر طلباً من شاشة الطلبات أولاً.",
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    when (currentUser?.role) {
+                        "client" -> viewModel.navigateClientTo("home")
+                        "merchant" -> viewModel.navigateMerchantTo("orders")
+                        "driver" -> viewModel.navigateDriverTo("radar")
+                    }
+                }
+            ) {
+                Text("رجوع للشاشة المناسبة", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    } else {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Chat Header
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(0.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Back button
+                    IconButton(onClick = {
+                        // Route back to parent home properly depending on role
+                        when (currentUser?.role) {
+                            "client" -> viewModel.navigateClientTo("home")
+                            "merchant" -> viewModel.navigateMerchantTo("orders")
+                            "driver" -> viewModel.navigateDriverTo("radar")
+                        }
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "رمز المفاوضة: #${activeOrder.id}",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Lock, contentDescription = "حماية", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(11.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "الهوية آمنة ومخفية تماماً",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Escrow info status strip
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.secondary.copy(0.15f))
+                    .padding(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "كود استلام القيمة للزبون: ${activeOrder.otpReleaseCode}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                    Text(
+                        text = "القيمة معلقة بالضمان (Frozen)",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+
+
+            // Operational lifecycle and offer/timeline strip
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("حالة الطلب: ${orderStatusAr(activeOrder.status)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = statusBadgeTextColor(activeOrder.status))
+                        Text("#${activeOrder.id}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OrderLifecycleStrip(activeOrder.status)
+
+                    if (offers.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val latestOffer = offers.first()
+                        Text(
+                            text = "آخر عرض: ${latestOffer.price} ريال | كمية ${latestOffer.availableQuantity} | تجهيز ${latestOffer.preparationMinutes} دقيقة" + if (latestOffer.alternativeMedicineName.isNotBlank()) " | بديل: ${latestOffer.alternativeMedicineName}" else "",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (timeline.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("آخر حدث: ${timeline.last().title} — ${timeline.last().note}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+
+                    if (currentUser?.role == "merchant" && activeOrder.merchantId == currentUser?.id && activeOrder.status in listOf("funds_frozen", "preparing")) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (activeOrder.status == "funds_frozen") {
+                                Button(onClick = { viewModel.markOrderPreparing(activeOrder.id) }, modifier = Modifier.weight(1f).height(34.dp), contentPadding = PaddingValues(0.dp)) {
+                                    Text("بدء التجهيز", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Button(onClick = { viewModel.markOrderReady(activeOrder.id) }, modifier = Modifier.weight(1f).height(34.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                                Text("جاهز للتسليم", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Chat logs content
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(chatMessages) { msg ->
+                    val isMe = msg.senderRole == currentUser?.role
+                    ChatBubble(msg = msg, isMe = isMe)
+                }
+            }
+
+            // Chat Input Bar (Supporting Text & Audio Opus Recorder Simulation)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    if (isRecordingSimulated) {
+                        // Recording audio details
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.error)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("جاري تسجيل نوتة صوتية مضغوطة Opus...", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                            }
+
+                            // Weight size estimation
+                            val weightEstimation = recordingDurationSec * 0.6
+                            Text(
+                                text = "${recordingDurationSec}ثانية  (${String.format("%.1f", weightEstimation)} ك.ب)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = { viewModel.stopAndSendVoiceNote() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("إيقاف وبث النوتة الطبية الرقمية 📨", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        // Standard Input Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Micro recording voice button
+                            IconButton(onClick = { viewModel.startRecordingVoice() }) {
+                                Icon(Icons.Default.Star, contentDescription = "تسجيل صوتي وبث", tint = MaterialTheme.colorScheme.secondary)
+                            }
+
+                            OutlinedTextField(
+                                value = chatTextInput,
+                                onValueChange = { chatTextInput = it },
+                                placeholder = { Text("اكتب رسالة أو استعلم عن السعر...", fontSize = 12.sp) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("chat_text_field"),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            IconButton(
+                                onClick = {
+                                    if (chatTextInput.isNotBlank()) {
+                                        viewModel.submitTextMessage(chatTextInput)
+                                        chatTextInput = ""
+                                    }
+                                },
+                                modifier = Modifier.testTag("send_chat_button")
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "إرسال", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubble(msg: ChatMessageEntity, isMe: Boolean) {
+    val bubbleColor = if (msg.senderRole == "system") {
+        MaterialTheme.colorScheme.surfaceVariant
+    } else if (isMe) {
+        MaterialTheme.colorScheme.primary.copy(0.18f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+
+    val bubbleBorder = if (msg.senderRole == "system") {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(0.4f))
+    } else if (isMe) {
+        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+    } else {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant)
+    }
+
+    val alignment = if (msg.senderRole == "system") Alignment.CenterHorizontally else if (isMe) Alignment.End else Alignment.Start
+
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = alignment) {
+        Text(
+            text = msg.senderName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        )
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            border = bubbleBorder,
+            colors = CardDefaults.cardColors(containerColor = bubbleColor),
+            modifier = Modifier.widthIn(max = 280.dp)
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                if (msg.isVoiceNote) {
+                    // Audio Playback simulation widget
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "تشغيل النوتة", tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            // Mock play bar
+                            Box(
+                                modifier = Modifier
+                                    .width(130.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "رسالة صوتية • ${msg.voiceDurationSec} ثانية (${msg.voiceFileSizeBytes / 1000.0} ك.ب)",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                } else {
+                    Text(text = msg.messageText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
+
+                // Time
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(msg.timestamp)),
+                    fontSize = 8.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+        }
+    }
+}
+
+
+// ------------------------------------------
+// CLIENT SCREEN 5: WALLET & CREAMI/CASH BILLING (المحفظة الإلكترونية لزبون المجمع)
+// ------------------------------------------
+@Composable
+fun WalletScreenAr(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val userTransactions by viewModel.userTransactions.collectAsStateWithLifecycle()
+    var rechargeAmountInput by remember { mutableStateOf("5000") }
+    var selectedBankProvider by remember { mutableStateOf("الكريمي للتمويل") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .testTag("wallet_screen_container")
+    ) {
+        Text(
+            text = "💳 محفظة المَجْمَع والربط البنكي المحلي للمستخدم",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Balance Display
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("المعرف الرقمي الفريد لحسابك البنكي:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("ALMAJMA-ID-67504", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text("الرصيد الكلي المتوفر للعمليات:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = "${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "12,000.00"} ريال يمني",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // YEMEN MULTI-CURRENCY CONVERTER WIDGET
+        var currencyAmountInput by remember { mutableStateOf("100") }
+        var selectedInputCurrency by remember { mutableStateOf("USD") } // USD, SAR
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.2f))
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📈 مقاصة وحاسبة عملات الصرف المتوازي",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Box(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.secondary.copy(0.15f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    ) {
+                        Text("الأسعار الميدانية الحرة", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = currencyAmountInput,
+                        onValueChange = { currencyAmountInput = it },
+                        label = { Text("المبلغ المحول", fontSize = 10.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1.5f).height(50.dp)
+                    )
+
+                    // Select currency
+                    Row(
+                        modifier = Modifier.weight(1.2f),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Button(
+                            onClick = { selectedInputCurrency = "USD" },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedInputCurrency == "USD") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("USD $", fontSize = 10.sp, color = if (selectedInputCurrency == "USD") Color.Black else MaterialTheme.colorScheme.onSurface)
+                        }
+
+                        Button(
+                            onClick = { selectedInputCurrency = "SAR" },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedInputCurrency == "SAR") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("ر.س (SAR)", fontSize = 10.sp, color = if (selectedInputCurrency == "SAR") Color.Black else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val amount = currencyAmountInput.toDoubleOrNull() ?: 1.0
+                val rateSanaa = if (selectedInputCurrency == "USD") 530.0 else 140.0
+                val rateAden = if (selectedInputCurrency == "USD") 1680.0 else 445.0
+
+                val valSanaa = amount * rateSanaa
+                val valAden = amount * rateAden
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Sanaa Local Rate Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.4f)),
+                        border = BorderStroke(0.5.dp, Color.Gray.copy(0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("صنعاء وشمال اليمن 🔴", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${String.format("%,.0f", valSanaa)} YR", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                            Text("بمعدل صرف $rateSanaa", fontSize = 8.sp, color = Color.Gray)
+                        }
+                    }
+
+                    // Aden Local Rate Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.4f)),
+                        border = BorderStroke(0.5.dp, Color.Gray.copy(0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("عدن وجنوب اليمن 🔵", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${String.format("%,.0f", valAden)} YR", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
+                            Text("بمعدل صرف $rateAden", fontSize = 8.sp, color = Color.Gray)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "* الأسعار تقاربية تتناغم مع مجمع الصرف المحلي.",
+                        fontSize = 8.sp,
+                        color = Color.Gray
+                    )
+
+                    TextButton(
+                        modifier = Modifier.height(26.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        onClick = {
+                            // Automatically set as deposit recharge simulation value
+                            rechargeAmountInput = valSanaa.toInt().toString()
+                        }
+                    ) {
+                        Text("استخدم كقيمة للإيداع ↙️", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // RECHARGE SIMULATION FORM
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("شحن المحفظة الفورية عبر قنوات التحويل اليمنية:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = rechargeAmountInput,
+                    onValueChange = { rechargeAmountInput = it },
+                    label = { Text("مبلغ الشحن") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    suffix = { Text("ريال يمني") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Grid selection provider
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BankSelectionChip(
+                        name = "نظام الكريمي",
+                        active = selectedBankProvider == "الكريمي للتمويل",
+                        modifier = Modifier.weight(1f),
+                        onClick = { selectedBankProvider = "الكريمي للتمويل" }
+                    )
+                    BankSelectionChip(
+                        name = "سويري كاش",
+                        active = selectedBankProvider == "سويري كاش",
+                        modifier = Modifier.weight(1f),
+                        onClick = { selectedBankProvider = "سويري كاش" }
+                    )
+                    BankSelectionChip(
+                        name = "تحويل كاش يدوي",
+                        active = selectedBankProvider == "تحويل كاش يدوي",
+                        modifier = Modifier.weight(1f),
+                        onClick = { selectedBankProvider = "تحويل كاش يدوي" }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val amt = rechargeAmountInput.toDoubleOrNull() ?: 5000.0
+                        viewModel.processRecharge(amt, selectedBankProvider)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .testTag("recharge_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("إجراء الإيداع بالمحفظة فوراً ✓", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Historical Log
+        Text(
+            text = "📜 سجل العمليات وتوزيع الضمان المالي بالمحفظة (Escrow Logs):",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (userTransactions.isEmpty()) {
+            Text("لم يجرى أي تبادل حتى الآن. قم بشحن محفظتك أو شراء سلعة للبدء.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            userTransactions.forEach { tx ->
+                TransactionRow(tx = tx)
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun BankSelectionChip(name: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (active) MaterialTheme.colorScheme.primary.copy(0.2f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else Color.Transparent),
+        modifier = modifier.height(35.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(name, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+fun TransactionRow(tx: TransactionEntity) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(tx.providerName, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(
+                    text = when (tx.type) {
+                        "credit" -> "📥 إيداع شحن"
+                        "debit" -> "📤 سحب مستقطع"
+                        "hold" -> "🔒 تجميد الضمان (HOLD)"
+                        "release" -> "🔓 فك التجميد وتمرير (RELEASE)"
+                        else -> tx.type
+                    },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                text = "${if (tx.type == "credit" || tx.type == "release") "+" else "-"}${Money.formatMinor(tx.amountMinor)} ريال",
+                fontWeight = FontWeight.ExtraBold,
+                color = if (tx.type == "credit" || tx.type == "release") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                fontSize = 13.sp
+            )
+        }
+    }
+}
+
+
+// ==========================================
+// SECOND APPLICATION HIERARCHY: MERCHANT / PHARMACIST PERSPECTIVE (التاجر والصيدلي)
+// ==========================================
+@Composable
+fun MerchantAppRoot(viewModel: PlatformViewModel, currentScreen: String) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        AlMajmaTopBar(viewModel = viewModel, titleRole = "واجهة التجار ومقدمي الخدمات 🛍️")
+        AnimatedContent(
+            targetState = currentScreen,
+            label = "MerchantScreenTransition",
+            modifier = Modifier.weight(1f)
+        ) { screen ->
+            when (screen) {
+                "dashboard" -> MerchantDashboardScreen(viewModel = viewModel)
+                "incoming" -> MerchantIncomingRequestsScreen(viewModel = viewModel)
+                "products" -> AddProductCatalogScreen(viewModel = viewModel)
+                "orders" -> MerchantEscrowTrackerScreen(viewModel = viewModel)
+                "chat" -> ChatRoomScreen(viewModel = viewModel)
+                "profile" -> ProfileScreen(viewModel = viewModel)
+                else -> MerchantDashboardScreen(viewModel = viewModel)
+            }
+        }
+
+        // Merchant specific tabs bottom
+        MerchantBottomNav(
+            currentScreen = currentScreen,
+            onNav = { viewModel.navigateMerchantTo(it) }
+        )
+    }
+}
+
+@Composable
+fun MerchantBottomNav(currentScreen: String, onNav: (String) -> Unit) {
+    NavigationBar(
+        modifier = Modifier.height(65.dp),
+        tonalElevation = 8.dp,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        NavigationBarItem(
+            selected = currentScreen == "dashboard",
+            onClick = { onNav("dashboard") },
+            icon = { Icon(Icons.Default.Home, contentDescription = "لوحة التحكم") },
+            label = { Text("لوحة التحكم", fontSize = 10.sp) }
+        )
+        NavigationBarItem(
+            selected = currentScreen == "incoming",
+            onClick = { onNav("incoming") },
+            icon = { Icon(Icons.Default.Star, contentDescription = "طلبات الدواء") },
+            label = { Text("طلبات وبث", fontSize = 10.sp) }
+        )
+        NavigationBarItem(
+            selected = currentScreen == "products",
+            onClick = { onNav("products") },
+            icon = { Icon(Icons.Default.Add, contentDescription = "إضافة منتج") },
+            label = { Text("إضافة", fontSize = 10.sp) }
+        )
+        NavigationBarItem(
+            selected = currentScreen == "orders" || currentScreen == "chat",
+            onClick = { onNav("orders") },
+            icon = { Icon(Icons.Default.Check, contentDescription = "صفقات وأمان") },
+            label = { Text("الضمان", fontSize = 10.sp) }
+        )
+    }
+}
+
+// ------------------------------------------
+// MERCHANT SCREEN 1: MERCHANT DASHBOARD & STATUS (لوحة التاجر والصيدلي)
+// ------------------------------------------
+@Composable
+fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val products by viewModel.products.collectAsStateWithLifecycle()
+    var storeIsOpen by remember { mutableStateOf(true) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("merchant_home_scroller")
+    ) {
+        // Welcoming & Stats Grid
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("صيدلية اليمن الكبرى (نشط)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("معرف منصة المجمع: #3302", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+
+                        // Status switch OPEN/CLOSED
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (storeIsOpen) "نشط ومتبخر" else "مغلق", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Switch(checked = storeIsOpen, onCheckedChange = { storeIsOpen = it })
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("رصيد المبيعات الجاهز", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "150,000.00"} ريال", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Column {
+                            Text("أرباح معلقة قيد الضمان", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("18,500 ريال", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
+                        }
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(20.dp)) }
+
+        // Action shortcuts buttons
+        item {
+            Button(
+                onClick = { viewModel.navigateMerchantTo("products") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Add, contentDescription = "منتج")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("إدراج منتج أو دواء جديد", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+
+        // MOCK STATISTICAL CHART WITH POWER EFFICIENCY
+        item {
+            Text("📈 الرسم البياني لحجم مبيعات ومفاوضات اليوم بالمجمع:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .drawBehind {
+                                // Draw mock grid bars keeping energy saving theme
+                                drawRoundRect(
+                                    color = Color(0xFF10B981).copy(0.3f),
+                                    topLeft = Offset(40f, 20f),
+                                    size = androidx.compose.ui.geometry.Size(60f, size.height - 20f)
+                                )
+                                drawRoundRect(
+                                    color = Color(0xFFFBBF24).copy(0.3f),
+                                    topLeft = Offset(140f, 50f),
+                                    size = androidx.compose.ui.geometry.Size(60f, size.height - 50f)
+                                )
+                                drawRoundRect(
+                                    color = Color(0xFF10B981).copy(0.3f),
+                                    topLeft = Offset(240f, 10f),
+                                    size = androidx.compose.ui.geometry.Size(60f, size.height - 10f)
+                                )
+                            }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Text("مبيعات مباشرة", fontSize = 10.sp)
+                        Text("عبر الموتور", fontSize = 10.sp)
+                        Text("بث طبي عكسي", fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+
+        // Core Pharmacological Dashboard Section Header
+        item {
+            Text(
+                text = "📋 إدارة سلامة الأدوية وجرد الـ FIFO والـ COGS",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "راقب فترات انتظام الصلاحية وتكلفة البضاعة بدقة وسجّل سحب الدفعات النشط فورياً.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+        // Dynamic FIFO & COGS Valuation Simulator Widget
+        item {
+            var inputFifoQty by remember { mutableStateOf("50") }
+            var showFifoResult by remember { mutableStateOf(false) }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Refresh, contentDescription = "فولدر FIFO", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("حاسبة التسعير والربح بنظرية الوارد أولاً يصرف أولاً (FIFO COGS)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text("سجل الدفعات الحالي للمورد الافتراضي بالمستودعات:\nالدفعة أ (الأقدم): 30 وحدة وتكلفة الشراء 700 ريال لكل علبة\nالدفعة ب (الأحدث): 100 وحدة وتكلفة الشراء 900 ريال لكل علبة\nسعر البيع الموحد بالمجمع: 1,500 ريال لكل علبة.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputFifoQty,
+                            onValueChange = { inputFifoQty = it },
+                            label = { Text("كمية المبيعات المراد جردها", fontSize = 10.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).height(50.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { showFifoResult = true },
+                            modifier = Modifier.height(44.dp)
+                        ) {
+                            Text("محاكاة الربح الكلي", fontSize = 10.sp, color = Color.Black)
+                        }
+                    }
+
+                    if (showFifoResult) {
+                        val qty = inputFifoQty.toIntOrNull() ?: 50
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.primary.copy(0.1f))
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                        ) {
+                            Column {
+                                Text("📊 تفصيل حساب تكلفة السلع المبيعة (COGS):", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                val sellingPrice = 1500.0
+                                val totalRevenue = qty * sellingPrice
+                                var totalCogs = 0.0
+                                var breakdownString = ""
+
+                                if (qty <= 30) {
+                                    totalCogs = qty * 700.0
+                                    breakdownString = "تم سحب كامل الكمية ($qty وحدة) من الدفعة أ بسعر تكلفة 700 ريال."
+                                } else {
+                                    val partA = 30 * 700.0
+                                    val partBQty = qty - 30
+                                    val partB = partBQty * 900.0
+                                    totalCogs = partA + partB
+                                    breakdownString = "تم سحب 30 وحدة من الدفعة أ (تكلفة 700 ريال) وسحب الباقي ($partBQty وحدة) من الدفعة ب (تكلفة 900 ريال)."
+                                }
+
+                                val netProfit = totalRevenue - totalCogs
+                                val profitPercent = (netProfit / totalRevenue) * 100.0
+
+                                Text("• $breakdownString", fontSize = 9.sp)
+                                Text("• إجمالي الإيراد: ${totalRevenue.toInt()} ريال يمني", fontSize = 9.sp)
+                                Text("• إجمالي الـ COGS: ${totalCogs.toInt()} ريال يمني", fontSize = 9.sp)
+                                Text("• صافي ربح الصفقة: ${netProfit.toInt()} ريال يمني (مجمل الربح: ${profitPercent.toInt()}%)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+
+        // List Medicines & Recalls Dashboard of Pharmacies
+        val myProducts = products
+
+        if (myProducts.isNotEmpty()) {
+            item {
+                Text(
+                    text = "📋 جرد دفعات الرف الحالي وقائمة الأصناف:",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            items(myProducts) { prd ->
+                val isExpired = prd.category == "medicine" && prd.expiryTimestamp < System.currentTimeMillis()
+                val isRecalled = prd.isRecalled
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isExpired) MaterialTheme.colorScheme.errorContainer.copy(0.12f)
+                        else if (isRecalled) Color(0xFF1E1E2C)
+                        else MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isExpired) MaterialTheme.colorScheme.error.copy(0.5f)
+                        else if (isRecalled) Color(0xFFE11D48).copy(0.5f)
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(prd.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                if (prd.category == "medicine") {
+                                    Text("الدفعة الباتش: ${prd.batchNumber}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                } else {
+                                    val catName = when(prd.category) { "clothing" -> "أزياء وملابس" "wholesale" -> "جملة" else -> prd.category }
+                                    Text("القسم: $catName", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("سعر البيع: ${prd.price} ريال", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                if (prd.category == "medicine") {
+                                    Text("سعر الشراء: ${prd.purchaseCost} ريال", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Info, contentDescription = "تفاصيل المخزون", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("المخزون المتبقي: ${prd.totalStock} علبة / وحدة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (prd.category == "medicine") {
+                                if (isExpired) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xFFEA580C).copy(0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("🚨 منتهي الصلاحية وصالح للإتلاف فوراً", fontSize = 9.sp, color = Color(0xFFF97316), fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("صالح وآمن ✅", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isRecalled) "🔴 هذا الصنف تم سحبه تماماً من أسواق المجمع" else "🟢 حالياً معروض ومتاح بحسابات الزبائن",
+                                fontSize = 10.sp,
+                                color = if (isRecalled) Color(0xFFFDA4AF) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (isRecalled) FontWeight.Bold else FontWeight.Normal
+                            )
+
+                            Button(
+                                onClick = { viewModel.toggleProductRecall(prd.id) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isRecalled) MaterialTheme.colorScheme.secondary else Color(0xFFE11D48)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text(
+                                    text = if (isRecalled) "أعد للتداول التجاري ✓" else "إيقاف وحظر الصنف 🚫",
+                                    fontSize = 9.sp,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// ------------------------------------------
+// MERCHANT SCREEN 2: PHARMACIST REVERSE OFFERS (استقبال عروض البث الدوائي من المرضى)
+// ------------------------------------------
+@Composable
+fun MerchantIncomingRequestsScreen(viewModel: PlatformViewModel) {
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val dismissedMedicationRequestIds = remember { mutableStateListOf<Int>() }
+    val openMedicationRequests = orders.filter {
+        it.category == "medicine" &&
+            it.status in listOf("waiting_offers", "pending") &&
+            it.merchantId == null &&
+            it.id !in dismissedMedicationRequestIds
+    }
+
+    var selectedQuoteOrder by remember { mutableStateOf<OrderEntity?>(null) }
+    var inputPriceProposal by remember { mutableStateOf("3200") }
+    var inputAvailableQty by remember { mutableStateOf("1") }
+    var inputPrepMinutes by remember { mutableStateOf("30") }
+    var inputAlternative by remember { mutableStateOf("") }
+    var inputExpiryDate by remember { mutableStateOf("2027-12") }
+    var inputOfferNote by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("incoming_requests_merchant")
+    ) {
+        Text(
+            text = "📡 رادار طلبات وبث الأدوية والوصفات الطبية المجاورة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = "اطلع على الروشتات الطبية وقدم عرض سعر منافس فوري للمريض",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (openMedicationRequests.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "لا توجد طلبات بث دواء نشطة حالياً بقربك. رادارات البحث تفحص المحيط باستمرار...",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(openMedicationRequests) { req ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("طلب استعلام مريض #${req.id}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.secondary.copy(0.2f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("بث رادار", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(req.productName, style = MaterialTheme.typography.bodySmall)
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { selectedQuoteOrder = req },
+                                    modifier = Modifier.height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                                ) {
+                                    Text("عرض مسعَّر مالي 💰", fontSize = 11.sp, color = Color.Black)
+                                }
+
+                                TextButton(
+                                    onClick = {
+                                        dismissedMedicationRequestIds.add(req.id)
+                                        viewModel.markMedicationUnavailable(req.id)
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("غير متوفر لدينا", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MERCHANT RESPONSE QUOTATION MODAL
+    selectedQuoteOrder?.let { order ->
+        AlertDialog(
+            onDismissRequest = { selectedQuoteOrder = null },
+            title = { Text("تقديم تسعيرة الدواء العكسي", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) },
+            text = {
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
+                    Text("اسم طلب بث المريض: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(order.productName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = inputPriceProposal,
+                        onValueChange = { inputPriceProposal = it },
+                        label = { Text("السعر المقترح والمدعوم للدواء") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        suffix = { Text("ريال يمني") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = inputAvailableQty,
+                            onValueChange = { inputAvailableQty = it },
+                            label = { Text("الكمية") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = inputPrepMinutes,
+                            onValueChange = { inputPrepMinutes = it },
+                            label = { Text("دقائق التجهيز") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = inputAlternative,
+                        onValueChange = { inputAlternative = it },
+                        label = { Text("بديل دوائي اختياري / نفس المادة الفعالة") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = inputExpiryDate,
+                        onValueChange = { inputExpiryDate = it },
+                        label = { Text("تاريخ الصلاحية / الباتش") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = inputOfferNote,
+                        onValueChange = { inputOfferNote = it },
+                        label = { Text("ملاحظة للصنف أو الوصفة") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val pr = inputPriceProposal.toDoubleOrNull() ?: 3000.0
+                        viewModel.submitPrescriptionOfferFull(
+                            orderId = order.id,
+                            priceProposal = pr,
+                            availableQuantity = inputAvailableQty.toIntOrNull() ?: 1,
+                            preparationMinutes = inputPrepMinutes.toIntOrNull() ?: 30,
+                            note = inputOfferNote,
+                            alternativeMedicineName = inputAlternative,
+                            expiryDateText = inputExpiryDate
+                        )
+                        dismissedMedicationRequestIds.add(order.id)
+                        selectedQuoteOrder = null
+                    }
+                ) {
+                    Text("إرسال التسعيرة للمريض ✓", color = Color.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedQuoteOrder = null }) {
+                    Text("إلغاء", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        )
+    }
+}
+
+
+// ------------------------------------------
+// MERCHANT SCREEN 3: ADD PRODUCTS & CATALOGUE (إثراء فيترينة البيع بالمظهر الخفيف)
+// ------------------------------------------
+@Composable
+fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
+    var productName by remember { mutableStateOf("") }
+    var productPrice by remember { mutableStateOf("") }
+    var productCategory by remember { mutableStateOf("clothing") } // clothing, wholesale, medicine
+    var productLocation by remember { mutableStateOf("صيدلية اليمن الكبرى - صنعاء") }
+
+    // Pharmacological-specific fields
+    var batchNumber by remember { mutableStateOf("B-SANA-${(10..99).random()}") }
+    var initialStock by remember { mutableStateOf("100") }
+    var purchaseCost by remember { mutableStateOf("") }
+    var expiryDaysOffset by remember { mutableStateOf("180") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .testTag("add_product_screen")
+    ) {
+        Text(
+            text = "✏️ إدراج مادة أو منتج جديد بالمجمع وبمواصفات دقيقة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Name
+        OutlinedTextField(
+            value = productName,
+            onValueChange = { productName = it },
+            label = { Text("اسم المنتج أو المستحضر الطبي") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Price
+        OutlinedTextField(
+            value = productPrice,
+            onValueChange = { productPrice = it },
+            label = { Text("سعر البيع") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            suffix = { Text("ريال يمني") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Category Selection
+        Text("القسم التجاري الخاص بالمنتج:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "clothing" }) {
+                RadioButton(selected = productCategory == "clothing", onClick = { productCategory = "clothing" })
+                Text("شال/ملبس", fontSize = 11.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "wholesale" }) {
+                RadioButton(selected = productCategory == "wholesale", onClick = { productCategory = "wholesale" })
+                Text("جملة وغذاء", fontSize = 11.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "medicine" }) {
+                RadioButton(selected = productCategory == "medicine", onClick = { productCategory = "medicine" })
+                Text("صيدلاني/دواء", fontSize = 11.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // If category is medicine, reveal strict batch tracking dashboard
+        if (productCategory == "medicine") {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.3f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("⚙️ بيانات الدفعة والمواصفات الدوائية (FIFO Batch Spec)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = batchNumber,
+                        onValueChange = { batchNumber = it },
+                        label = { Text("رقم الدفعة / الباتش", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = initialStock,
+                            onValueChange = { initialStock = it },
+                            label = { Text("الكمية بالعلبة", fontSize = 10.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).height(50.dp).padding(end = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = purchaseCost.ifEmpty { (productPrice.toDoubleOrNull()?.let { (it * 0.75).toInt().toString() } ?: "").toString() },
+                            onValueChange = { purchaseCost = it },
+                            label = { Text("سعر التكلفة للعلبة", fontSize = 10.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).height(50.dp).padding(start = 4.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = expiryDaysOffset,
+                        onValueChange = { expiryDaysOffset = it },
+                        label = { Text("فترة الصلاحية بالأيام (من اليوم)", fontSize = 10.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Location
+        OutlinedTextField(
+            value = productLocation,
+            onValueChange = { productLocation = it },
+            label = { Text("العنوان الجغرافي للاستلام") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Image optimization indicator
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Box(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "🔋 تقنية ضغط الصورة مدمجة تلقائياً للتاجر (حجم الفايل المتوقع: 4.5 كيلوبايت لضمان سرعة التحميل وضعف تغذية النت)",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                val pr = productPrice.toDoubleOrNull() ?: 1000.0
+                if (productName.isNotBlank()) {
+                    if (productCategory == "medicine") {
+                        val stock = initialStock.toIntOrNull() ?: 100
+                        val rawCost = purchaseCost.toDoubleOrNull() ?: (pr * 0.75)
+                        val days = expiryDaysOffset.toLongOrNull() ?: 180
+                        val expiryTime = System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L)
+                        viewModel.createProductFull(
+                            name = productName,
+                            price = pr,
+                            category = "medicine",
+                            location = productLocation,
+                            batchNumber = batchNumber,
+                            expiryTimestamp = expiryTime,
+                            purchaseCost = rawCost,
+                            totalStock = stock
+                        )
+                    } else {
+                        viewModel.createMerchantProduct(productName, pr, productCategory, productLocation)
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .testTag("submit_product_button"),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("حفظ ونشر المادة على رادار البائعين المجاورة ✓", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        }
+    }
+}
+
+
+// ------------------------------------------
+// MERCHANT SCREEN 4: ESCROW TRANSACTION MANAGER (صفقات أمان الضمان واستلام المبالغ)
+// ------------------------------------------
+@Composable
+fun MerchantEscrowTrackerScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val merchantBargains = orders.filter { it.merchantId == currentUser?.id }
+
+    var otpConfirmInput by remember { mutableStateOf("") }
+    var selectedOrderForOtp by remember { mutableStateOf<OrderEntity?>(null) }
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("merchant_escrow_tracker")
+    ) {
+        Text(
+            text = "🔒 صفقات الضمان ومبيعات مَجْمَع المعلقة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = "لكي يتم تحرير المبلغ وحساب الإيرادات، يجب الحصول على كود الإفراج وعنوان الأرباح (2% عمولة للمجمع)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (merchantBargains.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("لا توجد مبيعات جارية حالياً لمتجرك الكترونياً.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(merchantBargains) { deal ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("صفقة تداول رقم #${deal.id}", fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(
+                                            if (deal.status == "completed") MaterialTheme.colorScheme.primary.copy(0.2f)
+                                            else MaterialTheme.colorScheme.secondary.copy(0.2f)
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = orderStatusAr(deal.status),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (deal.status == "completed") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(deal.productName, fontSize = 12.sp)
+                            Text("السعر: ${deal.totalPrice} ريال | عمولة المنصة المتوقعة: ${deal.totalPrice * 0.02} ريال (2%)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.surfaceVariant)
+
+                            if (deal.status in listOf("funds_frozen", "preparing", "ready", "delivering")) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (deal.status == "funds_frozen") {
+                                        OutlinedButton(
+                                            onClick = { viewModel.markOrderPreparing(deal.id) },
+                                            modifier = Modifier.weight(1f).height(34.dp),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) { Text("بدء التجهيز", fontSize = 10.sp) }
+                                    }
+                                    if (deal.status in listOf("funds_frozen", "preparing")) {
+                                        Button(
+                                            onClick = { viewModel.markOrderReady(deal.id) },
+                                            modifier = Modifier.weight(1f).height(34.dp),
+                                            contentPadding = PaddingValues(0.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                        ) { Text("جاهز", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { selectedOrderForOtp = deal },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("أدخل كود الإفراج الآمن لتحصيل الأموال 💰", color = Color.White)
+                                }
+                            } else if (deal.status == "completed") {
+                                Text(
+                                    text = "تم تحرير الأرباح مخصومة بنجاح ✓",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                Text(
+                                    text = "الحالة الحالية: ${orderStatusAr(deal.status)}",
+                                    fontSize = 11.sp,
+                                    color = statusBadgeTextColor(deal.status),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // CONFIRM OTP RELEASE MODAL FOR ESCROW
+    selectedOrderForOtp?.let { deal ->
+        AlertDialog(
+            onDismissRequest = { selectedOrderForOtp = null },
+            title = { Text("تأكيد استلام كود الحزمة والفك مالي", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) },
+            text = {
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
+                    Text("أدخل كود التوصيل الفعلي الممنوح للمريض:", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = otpConfirmInput,
+                        onValueChange = { otpConfirmInput = it },
+                        label = { Text("رمز التحرير (4 أرقام)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.confirmDeliveryOtp(deal.id, otpConfirmInput) { success ->
+                            if (success) {
+                                Toast.makeText(context, "تم التحرير وتحويل الأموال فوراً!", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, "الرمز المدخل غير صحيح بالمرة!", Toast.LENGTH_LONG).show()
+                            }
+                            selectedOrderForOtp = null
+                            otpConfirmInput = ""
+                        }
+                    }
+                ) {
+                    Text("إطلاق سراح وتحصيل الأرباح", color = Color.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedOrderForOtp = null }) {
+                    Text("إلغاء", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        )
+    }
+}
+
+
+// ==========================================
+// THIRD APPLICATION HIERARCHY: MOTOR / RIDE DRIVER PERSPECTIVE (سائق الموتور وقبول الرادار)
+// ==========================================
+@Composable
+fun DriverAppRoot(viewModel: PlatformViewModel, currentScreen: String) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        AlMajmaTopBar(viewModel = viewModel, titleRole = "واجهة كاباتن التوصيل 🛵")
+        AnimatedContent(
+            targetState = currentScreen,
+            label = "DriverScreenTransition",
+            modifier = Modifier.weight(1f)
+        ) { screen ->
+            when (screen) {
+                "radar" -> DriverRadarScreen(viewModel = viewModel)
+                "wallet" -> DriverWalletScreen(viewModel = viewModel)
+                "chat" -> ChatRoomScreen(viewModel = viewModel)
+                "profile" -> ProfileScreen(viewModel = viewModel)
+                else -> DriverRadarScreen(viewModel = viewModel)
+            }
+        }
+
+        // Driver Bottom navigation
+        DriverBottomNav(
+            currentScreen = currentScreen,
+            onNav = { viewModel.navigateDriverTo(it) }
+        )
+    }
+}
+
+@Composable
+fun DriverBottomNav(currentScreen: String, onNav: (String) -> Unit) {
+    NavigationBar(
+        modifier = Modifier.height(65.dp),
+        tonalElevation = 8.dp,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        NavigationBarItem(
+            selected = currentScreen == "radar" || currentScreen == "chat",
+            onClick = { onNav("radar") },
+            icon = { Icon(Icons.Default.LocationOn, contentDescription = "رادار المشاوير") },
+            label = { Text("رادار الطلبات", fontSize = 10.sp) }
+        )
+        NavigationBarItem(
+            selected = currentScreen == "wallet",
+            onClick = { onNav("wallet") },
+            icon = { Icon(Icons.Default.Person, contentDescription = "أرباح السائق") },
+            label = { Text("محفظتي والتأمين", fontSize = 10.sp) }
+        )
+    }
+}
+
+// ------------------------------------------
+// DRIVER SCREEN 1: RADAR & CLAIM JOB (رادار مشاوير الموتور القريبة وضبط السعر)
+// ------------------------------------------
+@Composable
+fun DriverRadarScreen(viewModel: PlatformViewModel) {
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val availableRides = orders.filter { it.driverId == null && (it.category == "ride" || it.category == "medicine") && it.status in listOf("funds_frozen", "ready") }
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+
+    var radarIsRunning by remember { mutableStateOf(true) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("driver_radar_screen")
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("الكابتن: السريع أبو رعد", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("حالة الرادار النشط متبخر", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                Switch(checked = radarIsRunning, onCheckedChange = { radarIsRunning = it })
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Dynamic Active delivery warning (if has active job showing HUD shortcut)
+        val activeDelivery = orders.find { it.driverId == currentUser?.id && it.status in listOf("funds_frozen", "ready", "delivering") }
+        if (activeDelivery != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MaterialTheme.colorScheme.secondary, RoundedCornerShape(10.dp)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(0.1f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1.5f)) {
+                        Text("⚠️ لديك مهمة جار توصيلها الآن!", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                        Text(activeDelivery.productName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+
+                    Button(
+                        onClick = { viewModel.selectOrderForChat(activeDelivery.id) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("الخارطة والشات", fontSize = 10.sp, color = Color.White)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        Text(
+            text = "📡 رادار الطلبات القريبة الجاهزة التفاعلي:",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (!radarIsRunning) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text("قم بتشغيل المفتاح بالأعلى للبحث عن مشاوير طرود قريبة.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (availableRides.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text("رادار الاستكشاف يسحب البيانات... لا توجد طلبات معلقة بالمنطقة حالياً.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(availableRides) { ride ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (ride.category == "ride") " مشوار موتور سفري" else " توصيل دواء دقيق",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "${ride.deliveryFee} ريال أجر",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(ride.productName, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Divider(modifier = Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.surfaceVariant)
+
+                            // Quick Accept
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("العمولة المقررة للمجمع: ${ride.deliveryFee * 0.10} ريال (10%)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Button(
+                                    onClick = { viewModel.acceptDeliveryOrder(ride.id) },
+                                    modifier = Modifier.height(30.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
+                                ) {
+                                    Text("قبول وتحديث", fontSize = 11.sp, color = Color.Black)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// ------------------------------------------
+// DRIVER SCREEN 2: COMMISSION ESCROW & PROFIT WALLET (محفظة السائق والتأمين المقتطع مسبقاً)
+// ------------------------------------------
+@Composable
+fun DriverWalletScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val transactions by viewModel.userTransactions.collectAsStateWithLifecycle()
+    var depositRefillInput by remember { mutableStateOf("3000") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .testTag("driver_wallet_screen")
+    ) {
+        Text(
+            text = "🏍️ محفظة السائق وحقيبة تغذية التوصيل",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Balance Tracker
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("المبلغ التراكمي لضمان عمولة المجمع مسبقاً:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("يجب بقاء الرصيد فوق 1000 ريال لتلقي المشاوير", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "6,000.00"} ريال يمني",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Refill precharged deposit form
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("شحن تأمين عمولات السائقين بالمقدم:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = depositRefillInput,
+                    onValueChange = { depositRefillInput = it },
+                    label = { Text("المبلغ التعبوي المطلوب الشحن به") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    suffix = { Text("ريال") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = {
+                        val ref = depositRefillInput.toDoubleOrNull() ?: 2000.0
+                        viewModel.processRecharge(ref, "الكريمي شحن كابتن")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("تقديم تغذية رصيد التأمين مسبقاً ✓", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // History Log
+        Text("📜 حزم الاستقطاعات وعمولات مشاوير السائق السابقة (10%):", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (transactions.isEmpty()) {
+            Text("لم يخصم أي عمولات من محفظتك حتى الآن. استلم المشاوير بالأول.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            transactions.forEach { tx ->
+                TransactionRow(tx = tx)
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+// ------------------------------------------
+// SUPER ADMIN DASHBOARD PANEL (لوحة تحكم مدير النظام الشاملة)
+// ------------------------------------------
+@Composable
+fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val systemConfig by viewModel.systemConfig.collectAsStateWithLifecycle()
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val backupLogs by viewModel.backupLogs.collectAsStateWithLifecycle()
+    val allReviews by viewModel.allReviews.collectAsStateWithLifecycle()
+    val allDisputes by viewModel.allDisputes.collectAsStateWithLifecycle()
+    val allPrescriptions by viewModel.allPrescriptions.collectAsStateWithLifecycle()
+    val allPharmacyVerifications by viewModel.allPharmacyVerifications.collectAsStateWithLifecycle()
+
+    // Outbox & Double-Entry Reconciliation live channels (Recommendation 1 & 5)
+    val pendingOutboxCount by viewModel.pendingOutboxCount.collectAsStateWithLifecycle()
+    val failedOutboxCount by viewModel.failedOutboxCount.collectAsStateWithLifecycle()
+    val totalOutboxCount by viewModel.totalOutboxCount.collectAsStateWithLifecycle()
+    val reconciliationReport by viewModel.reconciliationReport.collectAsStateWithLifecycle()
+    val outboxSyncLog by viewModel.outboxSyncLog.collectAsStateWithLifecycle()
+    val outboxSyncFailureAlert by viewModel.outboxSyncFailureAlert.collectAsStateWithLifecycle()
+
+    val allOutboxEvents by viewModel.allOutboxEvents.collectAsStateWithLifecycle()
+    val allLedgerEntries by viewModel.allLedgerEntries.collectAsStateWithLifecycle()
+
+    val coroutineScope = rememberCoroutineScope()
+
+    // Configuration text inputs
+    var primaryColorInput by remember(systemConfig) { mutableStateOf(systemConfig.primaryColor) }
+    var secondaryColorInput by remember(systemConfig) { mutableStateOf(systemConfig.secondaryColor) }
+    var appTitleInput by remember(systemConfig) { mutableStateOf(systemConfig.appTitle) }
+    var rideLabelInput by remember(systemConfig) { mutableStateOf(systemConfig.rideLabel) }
+    var pharmacyLabelInput by remember(systemConfig) { mutableStateOf(systemConfig.pharmacyLabel) }
+    var clothingLabelInput by remember(systemConfig) { mutableStateOf(systemConfig.clothingLabel) }
+    var marketplaceOrderInput by remember(systemConfig) { mutableStateOf(systemConfig.marketplaceOrder) }
+    var isPromoVisibleInput by remember(systemConfig) { mutableStateOf(systemConfig.isPromoBannerVisible) }
+    var promoTextInput by remember(systemConfig) { mutableStateOf(systemConfig.promoBannerText) }
+
+    // Mock Pharmacies Approval list
+    val mockPharmaciesWaitingApproval = remember {
+        mutableStateListOf(
+            "صيدلية تريم المركزية",
+            "صيدلية الشفاء الحديثة (حافة اللقية)",
+            "صيدلية الدكتور علوي البار"
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        AlMajmaTopBar(viewModel = viewModel, titleRole = "لوحة مدير النظام 🛡️")
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .testTag("super_admin_pane")
+        ) {
+        // Welcome Header
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Settings, contentDescription = "Admin", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "لوحة تحكم مدير النظام الشاملة (Super-Admin Cockpit)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "محطة إدارة العمولات، الأمان والضمان اللامركزي، النسخ الاحتياطية وتخصيص الواجهات والملصقات فورياً بدون أي حاجة لتحديث المتجر.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(0.8f)
+                    )
+                }
+            }
+        }
+
+
+
+        // Section 0: Real operations control - disputes, prescriptions, pharmacy verification
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(0.25f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("🧭 مركز التشغيل الحقيقي: النزاعات، الوصفات، اعتماد الصيدليات", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("النزاعات المفتوحة", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    if (allDisputes.none { it.status == "open" }) {
+                        Text("لا توجد نزاعات مفتوحة حالياً.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        allDisputes.filter { it.status == "open" }.take(5).forEach { d ->
+                            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error.copy(0.08f))) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text("نزاع #${d.id} على الطلب #${d.orderId}: ${d.reason}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(d.details, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(onClick = { viewModel.resolveDisputeAsAdmin(d.id, false, "قرار الإدارة: استرجاع المبلغ للعميل لعدم اكتمال الإثبات.") }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) {
+                                            Text("استرجاع للعميل", fontSize = 9.sp)
+                                        }
+                                        Button(onClick = { viewModel.resolveDisputeAsAdmin(d.id, true, "قرار الإدارة: تحرير المبلغ للتاجر بعد قبول الإثبات.") }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) {
+                                            Text("تحرير للتاجر", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("اعتماد الصيدليات", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    allPharmacyVerifications.take(5).forEach { v ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${v.pharmacyName} — ${v.licenseNumber}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("الحالة: ${v.status} | ${v.city}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (v.status == "pending") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    TextButton(onClick = { viewModel.rejectPharmacy(v.merchantId) }) { Text("رفض", fontSize = 9.sp, color = MaterialTheme.colorScheme.error) }
+                                    Button(onClick = { viewModel.approvePharmacy(v.merchantId) }, modifier = Modifier.height(28.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("اعتماد", color = Color.Black, fontSize = 9.sp) }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("الوصفات الطبية", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    if (allPrescriptions.isEmpty()) {
+                        Text("لا توجد وصفات مسجلة.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        allPrescriptions.take(5).forEach { pr ->
+                            Text("طلب #${pr.orderId}: ${pr.status} | مرفق: ${if (pr.hasAttachment) "نعم" else "لا"}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
+                // Section 1: Server-Driven UI Configuration
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(0.2f), RoundedCornerShape(12.dp)),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("🎨 تخصيص الواجهات والملصقات (Server-Driven UI)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = appTitleInput,
+                        onValueChange = { appTitleInput = it },
+                        label = { Text("عنوان المنصة ومجمع الخدمات") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = primaryColorInput,
+                            onValueChange = { primaryColorInput = it },
+                            label = { Text("اللون رئيسي (Hex)") },
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        )
+                        OutlinedTextField(
+                            value = secondaryColorInput,
+                            onValueChange = { secondaryColorInput = it },
+                            label = { Text("اللون ثانوي (Hex)") },
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = rideLabelInput,
+                            onValueChange = { rideLabelInput = it },
+                            label = { Text("تسمية التوصيل") },
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = pharmacyLabelInput,
+                            onValueChange = { pharmacyLabelInput = it },
+                            label = { Text("تسمية الصيدلية") },
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = clothingLabelInput,
+                        onValueChange = { clothingLabelInput = it },
+                        label = { Text("تسمية سوق الملبوسات والسلع") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = marketplaceOrderInput,
+                        onValueChange = { marketplaceOrderInput = it },
+                        label = { Text("ترتيب وأولوية المعروض بالرئيسية (مفصول بفاصلة)") },
+                        placeholder = { Text("ride,pharmacy,clothing,wholesale,wallet") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = isPromoVisibleInput, onCheckedChange = { isPromoVisibleInput = it })
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("إظهار شريط الإعلانات العاجل الموحد", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    if (isPromoVisibleInput) {
+                        OutlinedTextField(
+                            value = promoTextInput,
+                            onValueChange = { promoTextInput = it },
+                            label = { Text("رسالة الإعلان الموحد") },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            viewModel.saveSystemConfigChanges(
+                                com.example.data.database.SystemConfigEntity(
+                                    primaryColor = primaryColorInput,
+                                    secondaryColor = secondaryColorInput,
+                                    appTitle = appTitleInput,
+                                    rideLabel = rideLabelInput,
+                                    pharmacyLabel = pharmacyLabelInput,
+                                    clothingLabel = clothingLabelInput,
+                                    marketplaceOrder = marketplaceOrderInput,
+                                    isPromoBannerVisible = isPromoVisibleInput,
+                                    promoBannerText = promoTextInput
+                                )
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth().height(42.dp)
+                    ) {
+                        Text("حفظ التغييرات ونشرها فورياً ✓", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Section 2: Cryptographic local & cloud backups (AES equivalent)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.secondary.copy(0.2f), RoundedCornerShape(12.dp)),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("🛡️ نظام النسخ الاحتياطية المشفرة والمجدولة (Dynamic Encrypted Backups)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("حفظ وتأمين المعاملات والتحويلات أوفلاين لمنع ضياع أي سنت عند ترقية قاعدة البيانات.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = {
+                                viewModel.executeLocalBackup(context.filesDir) { _ -> }
+                            },
+                            modifier = Modifier.weight(1.5f).height(36.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                        ) {
+                            Text("نسخة مشفرة محلية", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Button(
+                            onClick = {
+                                viewModel.executeCloudSimulationBackup { _ -> }
+                            },
+                            modifier = Modifier.weight(1.5f).height(36.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                        ) {
+                            Text("تزامن سحابي فوري", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.executeSystemRestore(context.filesDir, null) { _ -> }
+                            },
+                            modifier = Modifier.weight(1.5f).height(36.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                        ) {
+                            Text("فك تشفير واستعادة", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(0.4f))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = "سجل الإجراءات الأمنية والمطابقة:\n$backupLogs",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section 3: Escrow Pending / Lockbox Wallets
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("🔒 الصناديق المعلقة ومحافظ العقد (Pending Escrows)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val frozenOrders = orders.filter { it.status == "funds_frozen" }
+                    if (frozenOrders.isEmpty()) {
+                        Text("لا يوجد أي أموال مجمدة معلقة في المجمع حالياً. كافة الصناديق جرى تسييلها.", fontSize = 11.sp, color = Color.LightGray)
+                    } else {
+                        frozenOrders.forEach { ord ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.4f))
+                            ) {
+                                Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column {
+                                        Text("${ord.productName} (${ord.category})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                        Text("قيمة التجميد: ${Money.formatMinor(ord.totalPriceMinor + ord.deliveryFeeMinor)} ريال | عمولة المجمع: ${Money.formatMinor(ord.commissionAmountMinor)} ريال", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("مفتاح الأمان السري للفك: ${ord.otpReleaseCode}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 4: Pharmacies Approval Desk
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("🏥 طلبات اعتماد ومطابقة الصيدليات المتنقلة", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (mockPharmaciesWaitingApproval.isEmpty()) {
+                        Text("تم اعتماد ومطابقة كافة الصيدليات بنجاح ✅", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    } else {
+                        mockPharmaciesWaitingApproval.forEach { pharm ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(pharm, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Button(
+                                    onClick = { mockPharmaciesWaitingApproval.remove(pharm) },
+                                    modifier = Modifier.height(28.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                ) {
+                                    Text("اعتماد ومطابقة الجودة ✓", fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 5: Diagnostic Monitoring Crash Console and Outbox Monitor (Recommendation 1 & 2)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (outboxSyncFailureAlert) Color.Red else Color.Green))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "🖥️ بوابة الـ Outbox والتحقق المتعدد (SaaS Sync Monitor)",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (outboxSyncFailureAlert) Color.Red else Color.Green,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color.DarkGray)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "السجل: v3",
+                                fontSize = 10.sp,
+                                color = Color.LightGray,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (outboxSyncFailureAlert) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.Red.copy(0.25f))
+                        ) {
+                            Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = "Alarm", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "🚨 إنذار فني: نسبة فشل المزامنة تجاوزت الـ 5%! افحص خطوط الـ APN الميدانية.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Red,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Metrics dashboard row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("أحداث معلّقة (Pending)", color = Color.Gray, fontSize = 10.sp)
+                            Text("$pendingOutboxCount حدث", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Column {
+                            Text("أحداث فاشلة (Failed)", color = Color.Gray, fontSize = 10.sp)
+                            Text("$failedOutboxCount حدث", color = if (failedOutboxCount > 0) Color.Red else Color.LightGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Column {
+                            Text("إجمالي الأحداث (Total)", color = Color.Gray, fontSize = 10.sp)
+                            Text("$totalOutboxCount سجل", color = Color.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("سير عمل المزامنة في الخلفية (Scoped Sync Engine & Isolation Logs):", color = Color.Gray, fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Isolated Scoped logging console (Recommendation 2)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .background(Color.DarkGray.copy(0.5f))
+                            .border(1.dp, Color.DarkGray)
+                            .padding(8.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = outboxSyncLog,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = Color.Green,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("سجل الأحداث المنشورة الفعلي بقاعدة البيانات (Outbox Serialized Events Queue):", color = Color.Gray, fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .background(Color(0xFF0F172A))
+                            .border(1.dp, Color.DarkGray)
+                            .padding(6.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Column {
+                            if (allOutboxEvents.isEmpty()) {
+                                Text("لا توجد أحداث ومزامنات نشطة بالـ Outbox حتى الآن.", color = Color.Gray, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            } else {
+                                allOutboxEvents.reversed().take(10).forEach { evt ->
+                                    val statusColor = if (evt.status == "PENDING") Color(0xFFEAB308) else if (evt.status == "FAILED") Color(0xFFEF4444) else Color(0xFF22C55E)
+                                    val bgIndicator = if (evt.status == "PENDING") "⏱️" else if (evt.status == "FAILED") "❌" else "✅"
+                                    Text(
+                                        text = "$bgIndicator ID #${evt.id} | ${evt.eventType} | [${evt.status}]\n  Payload: ${evt.payload}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        color = statusColor,
+                                        fontSize = 9.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { viewModel.runOutboxSynchronization() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Green),
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("تشغيل معالج التزامن السحابي المعزول ⚡ (SaaS Sync)", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+
+        // Section 6: Nightly Financial Reconciliation Auditor (Recommendation 5)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(0.3f), RoundedCornerShape(12.dp)),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = "Ledger", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "⚖️ مصفاة ومصالحة الحسابات الدفترية (SaaS Ledger Auditor)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "يقوم النظام بمطابقة الأرصدة الافتراضية مع المعاملات الدفترية الدقيقة (Double-Entry Ledger) لمنع التباينات وتصفير الثقة في الـ Sync.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (reconciliationReport == null) {
+                        Text(
+                            text = "اضغط على زر الفحص للبدء بمطابقة الفهارس المحوسبة لجميع الأرصدة النشطة.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    } else {
+                        val report = reconciliationReport!!
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (report.isSecurityAlarmTripped) MaterialTheme.colorScheme.errorContainer 
+                                                 else MaterialTheme.colorScheme.primaryContainer.copy(0.4f)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = report.summaryMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (report.isSecurityAlarmTripped) MaterialTheme.colorScheme.onErrorContainer 
+                                            else MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("جدول التدقيق المالي المالي المزدوج:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                report.audits.forEach { audit ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("${audit.phone.takeLast(4)} (المستوى)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("الافتراضي: ${audit.cachedBalance}ر.ي", fontSize = 10.sp, color = Color.Gray)
+                                        Text("الـ Ledger: ${audit.calculatedLedgerSum}ر.ي", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = if (audit.status == "✅ RECONCILED_OK") "مطابق ✓" else "🚨 اختراق!",
+                                            fontSize = 11.sp,
+                                            color = if (audit.status == "✅ RECONCILED_OK") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Button(
+                        onClick = { viewModel.runNightlyFinancialAudit() },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("تشغيل التدقيق الليلي الفوري (Reconciliation Check)", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("سجل القيود المحاسبية الدفترية المزدوجة (Double-Entry Ledger Book):", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            .padding(6.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Column {
+                            if (allLedgerEntries.isEmpty()) {
+                                Text("لا توجد قيود محاسبية مسجلة بالدفتر حتى الآن.", color = Color.Gray, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            } else {
+                                allLedgerEntries.reversed().take(20).forEach { entry ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                    ) {
+                                        Column(modifier = Modifier.padding(6.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text("قيد #${entry.entryId}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                Text("المبلغ: ${Money.formatMinor(entry.amountMinor)} ر.ي", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.secondary)
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text("محفظة المدين: #${entry.debitWalletId}", fontSize = 9.sp, color = Color.Gray)
+                                                Text("محفظة الدائن: #${entry.creditWalletId}", fontSize = 9.sp, color = Color.Gray)
+                                            }
+                                            Text("الوصف: ${entry.narrative}", fontSize = 9.sp, style = MaterialTheme.typography.bodySmall)
+                                            Text("التاريخ: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(entry.timestamp))}", fontSize = 8.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 7: Offline-First Sync Conflict Scenario Simulator Wizard (Recommendation 6)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(0.3f), RoundedCornerShape(12.dp)),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Star, contentDescription = "Wizard", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "🧙‍♂️ معالج عروض أوفلاين والتعارض الفوري (Demo Wizard)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "سيناريو تجريد تباعد الأسعار: قم بتوليد طلب دواء في وضع أوفلاين وسعر قديم، لترى كيف تظهر الشاشة الحمراء لتسوية الخلاف المالي تزامناً!",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                // 1. Set mode to mesh/offline
+                                viewModel.setNetworkMode(com.example.data.network.NetworkMode.OFFLINE_MESH)
+                                // 2. Direct-insert a sugarcane medication order in CONFLICT state
+                                val client = viewModel.repository.getUserByPhone("770000001")
+                                val pharmacy = viewModel.repository.getUserByPhone("770000002")
+                                if (client != null && pharmacy != null) {
+                                    viewModel.repository.createOrder(
+                                        clientId = client.id,
+                                        merchantId = pharmacy.id,
+                                        driverId = null,
+                                        productName = "علاج منظم سكري جلوكوفاج 500 ملجم (محاكاة أوفلاين)",
+                                        category = "medicine",
+                                        totalPrice = 1800.0,
+                                        deliveryFee = 1500.0,
+                                        paymentMethod = "wallet"
+                                    )
+                                    Toast.makeText(context, "🪄 تم التحويل لأوفلاين بنجاح وتوليد الطلب بحالة [CONFLICT] لتجربته بالواجهة الأخرى!", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                        modifier = Modifier.fillMaxWidth().height(38.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("توليد سيناريو تعارض السعر أوفلاين 🪄", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Section 8: Mutual Peer Reviews ledger list
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("📜 دفتر مراجعات وتقييمات الشركاء (Community P2P Reviews)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (allReviews.isEmpty()) {
+                        Text("لا توجد مراجعات مسجلة في قاعدة البيانات حالياً لمطابقتها.", fontSize = 11.sp, color = Color.Gray)
+                    } else {
+                        allReviews.forEach { rev ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.4f))
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                        Text("رقم العقد: ${rev.orderId}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                        Text("التقييم: ${String(CharArray(rev.rating) { '⭐' })}", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    if (rev.tags.isNotBlank()) {
+                                        Text("الوسم السريع: ${rev.tags}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    if (rev.comment.isNotBlank()) {
+                                        Text("التعليق المكتوب: \"${rev.comment}\"", fontSize = 11.sp, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+}
+
+@Composable
+fun ProfileScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // App / Brand Icon
+        Card(
+            modifier = Modifier.size(100.dp),
+            shape = RoundedCornerShape(50.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            elevation = CardDefaults.cardElevation(8.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "الملف الشخصي",
+                    modifier = Modifier.size(60.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "رقم الهاتف: ${currentUser?.phone ?: "غير متوفر"}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Text(
+            text = "النوع: ${
+                when (currentRole) {
+                    "client" -> "عميل / زبون"
+                    "merchant" -> "تاجر / صيدلي"
+                    "driver" -> "كابتن توصيل"
+                    "admin" -> "مدير النظام"
+                    else -> currentRole
+                }
+            }",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(2.dp),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("تفاصيل المحفظة والرصيد", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("الرصيد المتاح:", fontSize = 14.sp)
+                    Text("${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "0.00"} ريال", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("حالة الحساب:", fontSize = 14.sp)
+                    Text(
+                        if (currentUser?.status == "active") "نشط ومفعل" else "قيد المراجعة",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = { viewModel.logout() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.ExitToApp, contentDescription = "خروج", tint = Color.White)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("تسجيل الخروج الآمن", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}

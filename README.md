@@ -1,0 +1,90 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
+
+# Run and deploy your AI Studio app
+
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/5bb95e4f-50e1-47e4-8aeb-f09969f648e7
+
+
+## Google AI Studio Ready
+
+هذه النسخة مجهزة كحزمة قابلة للرفع اليدوي أو السحب إلى Google AI Studio عند توفر خيار Import/Upload في قسم Build.
+
+الملفات المهمة للاستيراد:
+
+- `AI_STUDIO_IMPORT.md`: خطوات الرفع والتحذيرات.
+- `AI_STUDIO_PROMPT.md`: البرومبت الذي تعطيه لـ AI Studio حتى يكمل المشروع ولا يعيده من الصفر.
+- `PROJECT_STRUCTURE.md`: خريطة الملفات الأساسية.
+
+قاعدة مهمة: لا ترفع `.env` ولا أي مفتاح API إلى GitHub أو AI Studio كمعلومة عامة. استخدم `.env.example` فقط.
+
+## Run Locally
+
+**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+
+
+1. Open Android Studio
+2. Select **Open** and choose the directory containing this project
+3. Allow Android Studio to fix any incompatibilities as it imports the project.
+4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
+5. Run the app on an emulator or physical device. Debug signing now uses the Android Gradle default debug keystore, so no manual edit is required.
+
+## تعديل الواجهات في هذه النسخة
+
+- أضيف مسار قبول عرض الصيدلية من واجهة العميل مع تجميد الضمان المالي فعلياً عبر الـ ViewModel والـ Repository.
+- تم تفعيل زر "غير متوفر لدينا" في واجهة التاجر بدل أن يكون زرًا شكليًا.
+- أضيف تبويب مباشر لإضافة المنتجات في شريط تنقل التاجر.
+- تم تحسين شاشة المحادثة الفارغة وإظهار زر رجوع مناسب للدور الحالي.
+- تم استبدال وقت الرسائل الثابت بوقت الرسالة الحقيقي.
+- تم إصلاح إعداد debug signing حتى لا يفشل التشغيل المحلي بسبب غياب debug.keystore.
+
+## حزمة الإكمال الثانية — النواة التشغيلية الأساسية
+
+هذه النسخة لا تضيف أزرار شكلية فقط، بل تضيف طبقة تشغيل محلية داخل Room/Repository/ViewModel/Compose:
+
+- حالات طلب رسمية أكثر واقعية: waiting_offers, offer_received, funds_frozen, preparing, ready, delivering, completed, disputed, refunded, cancelled.
+- سجل زمني لكل طلب عبر `order_timeline` يظهر مسار الطلب من الإنشاء إلى الإغلاق.
+- إشعارات داخلية للمستخدمين عبر `notifications` مع عداد تنبيهات في الشريط العلوي.
+- عروض صيدليات حقيقية عبر `pharmacy_offers` تشمل السعر، الكمية، وقت التجهيز، البديل الدوائي، الصلاحية والملاحظة.
+- سجل وصفات طبية عبر `prescriptions` يثبت هل الوصفة مطلوبة وهل تم رفعها وما حالتها.
+- نزاعات مالية عبر `disputes` مع قرار إداري: استرجاع للعميل أو تحرير للتاجر.
+- اعتماد الصيدليات عبر `pharmacy_verifications`، ومنع الصيدلية غير المعتمدة من إرسال عروض دواء.
+- أزرار تشغيل للتاجر: بدء التجهيز، جاهز للتسليم، ثم تحرير الضمان بكود التسليم.
+- إلغاء/استرجاع للعميل قبل اكتمال التسليم، وفتح نزاع عند وجود مشكلة.
+- تحديث رادار السائق حتى لا يرى طلبات الدواء قبل تجميد الضمان أو جاهزية الطلب.
+- لوحة الإدارة تعرض النزاعات، اعتماد الصيدليات، وسجل الوصفات بدل قوائم وهمية فقط.
+
+> ملاحظة: ما زال هذا تطبيق محلي/Prototype متقدم. الدفع الحقيقي، رفع صور الوصفات، التحقق القانوني من التراخيص، والـ Backend المركزي تحتاج API حقيقي وخادم آمن قبل النشر التجاري.
+
+## إصلاحات الأساس الفني — نسخة الاستقرار المحلي
+
+تمت معالجة أخطر نواقص النسخة السابقة على مستوى الكود المحلي:
+
+- إزالة `fallbackToDestructiveMigration()` من إنشاء قاعدة Room؛ لم يعد التطبيق يمسح البيانات محليًا عند تغيير نسخة قاعدة البيانات.
+- رفع نسخة قاعدة البيانات إلى `version = 5` وإضافة migrations صريحة:
+  - `MIGRATION_1_2`: جداول المراجعات والإعدادات.
+  - `MIGRATION_2_3`: أعمدة التوافق القديمة + ledger/outbox.
+  - `MIGRATION_3_4`: عروض الصيدليات، سجل الطلب، الإشعارات، النزاعات، الوصفات، واعتماد الصيدليات.
+  - `MIGRATION_4_5`: أعمدة المال بوحدات صغرى `Minor Units` مع backfill من القيم القديمة.
+- إضافة `Money.kt` لتخزين وحساب المبالغ الحساسة كـ `Long` minor units بدل الاعتماد المالي على `Double`.
+- تحديث `ledger_entries` و`transactions` لتحتوي `amountMinor`، واستخدامه في حساب رصيد المحفظة والمصالحة المالية.
+- إضافة `walletBalanceMinor` للمستخدمين وأعمدة minor للأسعار والعمولات والطلبات وعروض الصيدليات.
+- تحديث شاشة السجل المالي والمحاسبي لعرض المبالغ من minor units بدل قراءة `Double` مباشرة.
+- إضافة اختبار `MoneyPrecisionTest` للتحقق من تحويل القيم المالية بدون أخطاء binary floating point.
+
+### ملاحظة تنفيذية قاسية
+
+ما زال التطبيق محليًا؛ هذه الإصلاحات تمنع أخطاء Room والمال داخل الـ Prototype، لكنها لا تجعل التطبيق Production. الإنتاج الحقيقي يحتاج Backend/API، Auth، رفع ملفات آمن، دفع حقيقي، FCM، ولوحة Admin ويب.
+
+### بخصوص Gradle Wrapper
+
+لم يتم توليد `gradle-wrapper.jar` داخل هذه البيئة لأن Gradle غير مثبت ولا يمكن تنزيل التوزيعة. عند فتح المشروع في Android Studio يمكن توليده محليًا من:
+
+```bash
+./gradle wrapper --gradle-version 8.14.3
+```
+
+أو من Android Studio عبر Gradle task: `wrapper`.
