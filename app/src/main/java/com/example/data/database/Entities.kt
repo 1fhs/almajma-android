@@ -21,9 +21,23 @@ data class UserEntity(
     @ColumnInfo(defaultValue = "''") val displayName: String = "",
     @ColumnInfo(defaultValue = "'none'") val businessType: String = "none", // none, pharmacy, marketplace, delivery, admin
     @ColumnInfo(defaultValue = "''") val businessName: String = "",
+    @ColumnInfo(defaultValue = "''") val responsibleName: String = "",
+    @ColumnInfo(defaultValue = "''") val contactPhone: String = "",
     @ColumnInfo(defaultValue = "''") val city: String = "",
+    @ColumnInfo(defaultValue = "''") val district: String = "",
     @ColumnInfo(defaultValue = "''") val address: String = "",
+    @ColumnInfo(defaultValue = "0.0") val gpsLatitude: Double = 0.0,
+    @ColumnInfo(defaultValue = "0.0") val gpsLongitude: Double = 0.0,
     @ColumnInfo(defaultValue = "''") val licenseNumber: String = "",
+    @ColumnInfo(defaultValue = "''") val licenseImageUri: String = "",
+    @ColumnInfo(defaultValue = "''") val workingHours: String = "",
+    @ColumnInfo(defaultValue = "0") val deliversOrders: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val serviceRadiusKm: Int = 0,
+    @ColumnInfo(defaultValue = "''") val merchantCategory: String = "",
+    @ColumnInfo(defaultValue = "''") val deliveryPolicy: String = "",
+    @ColumnInfo(defaultValue = "''") val vehicleType: String = "",
+    @ColumnInfo(defaultValue = "''") val vehiclePlate: String = "",
+    @ColumnInfo(defaultValue = "'pending'") val approvalStatus: String = "pending",
     @ColumnInfo(defaultValue = "0") val isProfileComplete: Boolean = false
 )
 

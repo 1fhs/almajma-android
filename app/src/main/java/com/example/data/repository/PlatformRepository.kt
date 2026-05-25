@@ -112,9 +112,13 @@ class PlatformRepository(
             displayName = inferredDisplayName,
             businessType = inferredBusinessType,
             businessName = if (role == "merchant") inferredDisplayName else "",
+            contactPhone = phone,
             city = if (defaultTenant.contains("عدن")) "عدن" else "صنعاء",
+            district = "",
             address = "",
             licenseNumber = "",
+            merchantCategory = if (inferredBusinessType == "pharmacy") "pharmacy" else if (inferredBusinessType == "marketplace") "clothes" else "",
+            approvalStatus = "incomplete",
             isProfileComplete = false
         )
         val id = userDao.insertUser(newUser).toInt()
@@ -203,27 +207,94 @@ class PlatformRepository(
         displayName: String,
         businessType: String,
         businessName: String,
+        responsibleName: String,
+        contactPhone: String,
         city: String,
+        district: String,
         address: String,
-        licenseNumber: String
+        gpsLatitude: Double,
+        gpsLongitude: Double,
+        licenseNumber: String,
+        licenseImageUri: String,
+        workingHours: String,
+        deliversOrders: Boolean,
+        serviceRadiusKm: Int,
+        merchantCategory: String,
+        deliveryPolicy: String,
+        vehicleType: String,
+        vehiclePlate: String
     ) {
         val user = userDao.getUserById(userId) ?: return
+        val cleanFullName = fullName.trim()
+        val cleanDisplayName = displayName.trim().ifBlank { cleanFullName.ifBlank { user.phone } }
+        val cleanBusinessName = businessName.trim()
+        val cleanResponsibleName = responsibleName.trim()
+        val cleanContactPhone = contactPhone.trim().ifBlank { user.phone }
+        val cleanCity = city.trim()
+        val cleanDistrict = district.trim()
+        val cleanAddress = address.trim()
+        val cleanLicenseNumber = licenseNumber.trim()
+        val cleanLicenseImageUri = licenseImageUri.trim()
+        val cleanWorkingHours = workingHours.trim()
+        val cleanMerchantCategory = merchantCategory.trim()
+        val cleanDeliveryPolicy = deliveryPolicy.trim()
+        val cleanVehicleType = vehicleType.trim()
+        val cleanVehiclePlate = vehiclePlate.trim()
         val safeBusinessType = when (user.role) {
             "merchant" -> if (businessType == "pharmacy") "pharmacy" else "marketplace"
             "driver" -> "delivery"
             "admin" -> "admin"
             else -> "none"
         }
+        val safeServiceRadius = serviceRadiusKm.coerceIn(0, 300)
+        val profileComplete = when (user.role) {
+            "client" -> cleanFullName.isNotBlank() && cleanCity.isNotBlank() && cleanDistrict.isNotBlank() && cleanAddress.isNotBlank()
+            "merchant" -> {
+                val baseMerchantOk = cleanFullName.isNotBlank() && cleanResponsibleName.isNotBlank() &&
+                    cleanBusinessName.isNotBlank() && cleanCity.isNotBlank() && cleanDistrict.isNotBlank() && cleanAddress.isNotBlank()
+                if (safeBusinessType == "pharmacy") {
+                    baseMerchantOk && cleanLicenseNumber.isNotBlank() && cleanWorkingHours.isNotBlank()
+                } else {
+                    baseMerchantOk && cleanMerchantCategory.isNotBlank() && cleanDeliveryPolicy.isNotBlank()
+                }
+            }
+            "driver" -> cleanFullName.isNotBlank() && cleanContactPhone.isNotBlank() && cleanCity.isNotBlank() &&
+                cleanDistrict.isNotBlank() && cleanVehicleType.isNotBlank() && cleanVehiclePlate.isNotBlank()
+            "admin" -> cleanFullName.isNotBlank()
+            else -> false
+        }
+        val approvalStatus = when {
+            user.role == "admin" || user.role == "client" -> "approved"
+            profileComplete && user.approvalStatus == "approved" -> "approved"
+            profileComplete && user.approvalStatus == "suspended" -> "suspended"
+            profileComplete -> "pending"
+            else -> "incomplete"
+        }
 
         userDao.updateUserProfile(
             id = userId,
-            fullName = fullName.trim(),
-            displayName = displayName.trim().ifBlank { fullName.trim() },
+            fullName = cleanFullName,
+            displayName = cleanDisplayName,
             businessType = safeBusinessType,
-            businessName = businessName.trim(),
-            city = city.trim(),
-            address = address.trim(),
-            licenseNumber = licenseNumber.trim()
+            businessName = if (user.role == "merchant") cleanBusinessName else "",
+            responsibleName = cleanResponsibleName,
+            contactPhone = cleanContactPhone,
+            city = cleanCity,
+            district = cleanDistrict,
+            address = cleanAddress,
+            gpsLatitude = gpsLatitude,
+            gpsLongitude = gpsLongitude,
+            licenseNumber = cleanLicenseNumber,
+            licenseImageUri = cleanLicenseImageUri,
+            workingHours = cleanWorkingHours,
+            deliversOrders = deliversOrders,
+            serviceRadiusKm = safeServiceRadius,
+            merchantCategory = cleanMerchantCategory,
+            deliveryPolicy = cleanDeliveryPolicy,
+            vehicleType = cleanVehicleType,
+            vehiclePlate = cleanVehiclePlate,
+            approvalStatus = approvalStatus,
+            isProfileComplete = profileComplete
         )
 
         if (user.role == "merchant" && safeBusinessType == "pharmacy") {
@@ -232,16 +303,20 @@ class PlatformRepository(
                 id = existingVerification?.id ?: 0,
                 tenantId = user.tenantId,
                 merchantId = userId,
-                pharmacyName = businessName.trim().ifBlank { displayName.trim().ifBlank { "صيدلية بدون اسم" } },
-                licenseNumber = licenseNumber.trim().ifBlank { "PENDING-DOC" },
-                city = city.trim().ifBlank { "غير محدد" },
-                status = existingVerification?.status ?: "pending",
+                pharmacyName = cleanBusinessName.ifBlank { cleanDisplayName.ifBlank { "صيدلية بدون اسم" } },
+                licenseNumber = cleanLicenseNumber.ifBlank { "PENDING-DOC" },
+                city = cleanCity.ifBlank { "غير محدد" },
+                status = existingVerification?.status ?: if (profileComplete) "pending" else "incomplete",
                 rejectionReason = existingVerification?.rejectionReason ?: ""
             )
             pharmacyVerificationDao.insertVerification(verification)
         }
 
-        enqueueOutboxEvent(user.tenantId, "USER_PROFILE_UPDATED", "{ userId: $userId, businessType: '$safeBusinessType' }")
+        enqueueOutboxEvent(
+            user.tenantId,
+            "USER_PROFILE_UPDATED",
+            "{ userId: $userId, role: '${user.role}', businessType: '$safeBusinessType', complete: $profileComplete, approval: '$approvalStatus' }"
+        )
     }
 
     /**
@@ -1018,25 +1093,25 @@ class PlatformRepository(
         if (users.isEmpty()) {
             // Seed Clients
             val clientId = userDao.insertUser(
-                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000001", role = "client", walletBalance = 0.0, status = "active", fullName = "أحمد بن علي", displayName = "أحمد بن علي", businessType = "none", city = "صنعاء", address = "خلف مدرسة بلقيس", isProfileComplete = true)
+                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000001", role = "client", walletBalance = 0.0, status = "active", fullName = "أحمد بن علي", displayName = "أحمد بن علي", businessType = "none", contactPhone = "770000001", city = "صنعاء", district = "التحرير", address = "خلف مدرسة بلقيس", approvalStatus = "approved", isProfileComplete = true)
             ).toInt()
 
             // Seed Merchants
             val pharmacyId = userDao.insertUser(
-                UserEntity(tenantId = "tenant_عدن_صيدلة", phone = "770000002", role = "merchant", walletBalance = 0.0, status = "active", fullName = "صيدلي المناوبة", displayName = "صيدلية اليمن الكبرى", businessType = "pharmacy", businessName = "صيدلية اليمن الكبرى", city = "عدن - كريتر", address = "كريتر - الشارع الرئيسي", licenseNumber = "PH-YE-2026-3302", isProfileComplete = true)
+                UserEntity(tenantId = "tenant_عدن_صيدلة", phone = "770000002", role = "merchant", walletBalance = 0.0, status = "active", fullName = "صيدلي المناوبة", displayName = "صيدلية اليمن الكبرى", businessType = "pharmacy", businessName = "صيدلية اليمن الكبرى", responsibleName = "صيدلي المناوبة", contactPhone = "770000002", city = "عدن - كريتر", district = "كريتر", address = "كريتر - الشارع الرئيسي", licenseNumber = "PH-YE-2026-3302", workingHours = "09:00 - 22:00", deliversOrders = true, serviceRadiusKm = 8, merchantCategory = "pharmacy", approvalStatus = "approved", isProfileComplete = true)
             ).toInt()
 
             val boutiqueId = userDao.insertUser(
-                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000003", role = "merchant", walletBalance = 0.0, status = "active", fullName = "تاجر سوق الجملة", displayName = "بوتيك المجمع اليمني", businessType = "marketplace", businessName = "بوتيك المجمع اليمني", city = "صنعاء", address = "سوق الجملة - باب اليمن", licenseNumber = "MARKET-LOCAL-3303", isProfileComplete = true)
+                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000003", role = "merchant", walletBalance = 0.0, status = "active", fullName = "تاجر سوق الجملة", displayName = "بوتيك المجمع اليمني", businessType = "marketplace", businessName = "بوتيك المجمع اليمني", responsibleName = "تاجر سوق الجملة", contactPhone = "770000003", city = "صنعاء", district = "باب اليمن", address = "سوق الجملة - باب اليمن", licenseNumber = "MARKET-LOCAL-3303", deliversOrders = true, serviceRadiusKm = 6, merchantCategory = "clothes", deliveryPolicy = "توصيل داخل صنعاء أو استلام من المتجر", approvalStatus = "approved", isProfileComplete = true)
             ).toInt()
 
             // Seed Driver
             val driverId = userDao.insertUser(
-                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000004", role = "driver", walletBalance = 0.0, status = "active", fullName = "أبو رعد", displayName = "السائق أبو رعد", businessType = "delivery", city = "صنعاء", address = "نطاق صنعاء القديمة", isProfileComplete = true)
+                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000004", role = "driver", walletBalance = 0.0, status = "active", fullName = "أبو رعد", displayName = "السائق أبو رعد", businessType = "delivery", contactPhone = "770000004", city = "صنعاء", district = "صنعاء القديمة", address = "نطاق صنعاء القديمة", vehicleType = "دراجة", vehiclePlate = "YEM-3304", approvalStatus = "approved", isProfileComplete = true)
             ).toInt()
 
             val adminId = userDao.insertUser(
-                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000009", role = "admin", walletBalance = 0.0, status = "active", fullName = "إدارة المجمع", displayName = "مدير النظام", businessType = "admin", city = "صنعاء", isProfileComplete = true)
+                UserEntity(tenantId = "tenant_صنعاء_وسط", phone = "770000009", role = "admin", walletBalance = 0.0, status = "active", fullName = "إدارة المجمع", displayName = "مدير النظام", businessType = "admin", contactPhone = "770000009", city = "صنعاء", district = "الإدارة", approvalStatus = "approved", isProfileComplete = true)
             ).toInt()
 
             pharmacyVerificationDao.insertVerification(

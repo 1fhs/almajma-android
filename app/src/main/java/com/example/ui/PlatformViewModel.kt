@@ -31,7 +31,8 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         AppDatabase.MIGRATION_2_3,
         AppDatabase.MIGRATION_3_4,
         AppDatabase.MIGRATION_4_5,
-        AppDatabase.MIGRATION_5_6
+        AppDatabase.MIGRATION_5_6,
+        AppDatabase.MIGRATION_6_7
     )
     .build()
 
@@ -690,9 +691,22 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         displayName: String,
         businessType: String,
         businessName: String,
+        responsibleName: String,
+        contactPhone: String,
         city: String,
+        district: String,
         address: String,
-        licenseNumber: String
+        gpsLatitude: Double,
+        gpsLongitude: Double,
+        licenseNumber: String,
+        licenseImageUri: String,
+        workingHours: String,
+        deliversOrders: Boolean,
+        serviceRadiusKm: Int,
+        merchantCategory: String,
+        deliveryPolicy: String,
+        vehicleType: String,
+        vehiclePlate: String
     ) {
         viewModelScope.launch {
             val user = _currentUser.value ?: return@launch
@@ -702,9 +716,22 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
                 displayName = displayName,
                 businessType = businessType,
                 businessName = businessName,
+                responsibleName = responsibleName,
+                contactPhone = contactPhone,
                 city = city,
+                district = district,
                 address = address,
-                licenseNumber = licenseNumber
+                gpsLatitude = gpsLatitude,
+                gpsLongitude = gpsLongitude,
+                licenseNumber = licenseNumber,
+                licenseImageUri = licenseImageUri,
+                workingHours = workingHours,
+                deliversOrders = deliversOrders,
+                serviceRadiusKm = serviceRadiusKm,
+                merchantCategory = merchantCategory,
+                deliveryPolicy = deliveryPolicy,
+                vehicleType = vehicleType,
+                vehiclePlate = vehiclePlate
             )
             _currentUser.value = repository.getUserById(user.id)
         }

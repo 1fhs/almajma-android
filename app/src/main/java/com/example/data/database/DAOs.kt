@@ -29,10 +29,24 @@ interface UserDao {
             displayName = :displayName,
             businessType = :businessType,
             businessName = :businessName,
+            responsibleName = :responsibleName,
+            contactPhone = :contactPhone,
             city = :city,
+            district = :district,
             address = :address,
+            gpsLatitude = :gpsLatitude,
+            gpsLongitude = :gpsLongitude,
             licenseNumber = :licenseNumber,
-            isProfileComplete = 1
+            licenseImageUri = :licenseImageUri,
+            workingHours = :workingHours,
+            deliversOrders = :deliversOrders,
+            serviceRadiusKm = :serviceRadiusKm,
+            merchantCategory = :merchantCategory,
+            deliveryPolicy = :deliveryPolicy,
+            vehicleType = :vehicleType,
+            vehiclePlate = :vehiclePlate,
+            approvalStatus = :approvalStatus,
+            isProfileComplete = :isProfileComplete
         WHERE id = :id
     """)
     suspend fun updateUserProfile(
@@ -41,9 +55,24 @@ interface UserDao {
         displayName: String,
         businessType: String,
         businessName: String,
+        responsibleName: String,
+        contactPhone: String,
         city: String,
+        district: String,
         address: String,
-        licenseNumber: String
+        gpsLatitude: Double,
+        gpsLongitude: Double,
+        licenseNumber: String,
+        licenseImageUri: String,
+        workingHours: String,
+        deliversOrders: Boolean,
+        serviceRadiusKm: Int,
+        merchantCategory: String,
+        deliveryPolicy: String,
+        vehicleType: String,
+        vehiclePlate: String,
+        approvalStatus: String,
+        isProfileComplete: Boolean
     )
 
     @Query("UPDATE users SET walletBalance = :newBalance, walletBalanceMinor = CAST(ROUND(:newBalance * 100.0) AS INTEGER) WHERE id = :id")

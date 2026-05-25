@@ -70,6 +70,9 @@ fun AlMajmaAppUi(viewModel: PlatformViewModel) {
             if (currentUser == null) {
                 // Auth system screen
                 AuthScreenAr(viewModel = viewModel)
+            } else if (currentRole != "admin" && currentUser?.isProfileComplete != true) {
+                // لا تفتح السوق/الصيدلية/التوصيل قبل اكتمال بيانات الحساب.
+                ProfileScreen(viewModel = viewModel)
             } else {
                 // Render the selected Profile (4-apps-in-1)
                 Crossfade(targetState = currentRole, label = "RoleAppTransition") { role ->
@@ -5034,14 +5037,69 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val user = currentUser ?: return
 
-    var fullName by remember(currentUser?.id, currentUser?.fullName) { mutableStateOf(currentUser?.fullName ?: "") }
-    var displayName by remember(currentUser?.id, currentUser?.displayName) { mutableStateOf(currentUser?.displayName ?: "") }
-    var businessType by remember(currentUser?.id, currentUser?.businessType) { mutableStateOf(currentUser?.businessType ?: "none") }
-    var businessName by remember(currentUser?.id, currentUser?.businessName) { mutableStateOf(currentUser?.businessName ?: "") }
-    var city by remember(currentUser?.id, currentUser?.city) { mutableStateOf(currentUser?.city ?: "") }
-    var address by remember(currentUser?.id, currentUser?.address) { mutableStateOf(currentUser?.address ?: "") }
-    var licenseNumber by remember(currentUser?.id, currentUser?.licenseNumber) { mutableStateOf(currentUser?.licenseNumber ?: "") }
+    var fullName by remember(user.id, user.fullName) { mutableStateOf(user.fullName) }
+    var displayName by remember(user.id, user.displayName) { mutableStateOf(user.displayName) }
+    var businessType by remember(user.id, user.businessType, currentRole) {
+        mutableStateOf(
+            if (currentRole == "merchant" && (user.businessType.isBlank() || user.businessType == "none")) "pharmacy" else user.businessType
+        )
+    }
+    var businessName by remember(user.id, user.businessName) { mutableStateOf(user.businessName) }
+    var responsibleName by remember(user.id, user.responsibleName) { mutableStateOf(user.responsibleName) }
+    var contactPhone by remember(user.id, user.contactPhone) { mutableStateOf(user.contactPhone.ifBlank { user.phone }) }
+    var city by remember(user.id, user.city) { mutableStateOf(user.city) }
+    var district by remember(user.id, user.district) { mutableStateOf(user.district) }
+    var address by remember(user.id, user.address) { mutableStateOf(user.address) }
+    var gpsLatitudeText by remember(user.id, user.gpsLatitude) { mutableStateOf(if (user.gpsLatitude == 0.0) "" else user.gpsLatitude.toString()) }
+    var gpsLongitudeText by remember(user.id, user.gpsLongitude) { mutableStateOf(if (user.gpsLongitude == 0.0) "" else user.gpsLongitude.toString()) }
+    var licenseNumber by remember(user.id, user.licenseNumber) { mutableStateOf(user.licenseNumber) }
+    var licenseImageUri by remember(user.id, user.licenseImageUri) { mutableStateOf(user.licenseImageUri) }
+    var workingHours by remember(user.id, user.workingHours) { mutableStateOf(user.workingHours) }
+    var deliversOrders by remember(user.id, user.deliversOrders) { mutableStateOf(user.deliversOrders) }
+    var serviceRadiusText by remember(user.id, user.serviceRadiusKm) { mutableStateOf(if (user.serviceRadiusKm <= 0) "" else user.serviceRadiusKm.toString()) }
+    var merchantCategory by remember(user.id, user.merchantCategory) { mutableStateOf(user.merchantCategory.ifBlank { if (businessType == "pharmacy") "pharmacy" else "clothes" }) }
+    var deliveryPolicy by remember(user.id, user.deliveryPolicy) { mutableStateOf(user.deliveryPolicy) }
+    var vehicleType by remember(user.id, user.vehicleType) { mutableStateOf(user.vehicleType) }
+    var vehiclePlate by remember(user.id, user.vehiclePlate) { mutableStateOf(user.vehiclePlate) }
+
+    val safeBusinessType = when (currentRole) {
+        "merchant" -> if (businessType == "pharmacy") "pharmacy" else "marketplace"
+        "driver" -> "delivery"
+        "admin" -> "admin"
+        else -> "none"
+    }
+    val isPharmacy = currentRole == "merchant" && safeBusinessType == "pharmacy"
+    val isMarketplace = currentRole == "merchant" && safeBusinessType == "marketplace"
+    val profileIssues = mutableListOf<String>().apply {
+        if (fullName.trim().isBlank()) add("الاسم الكامل مطلوب")
+        if (city.trim().isBlank()) add("المدينة مطلوبة")
+        if (currentRole != "admin" && district.trim().isBlank()) add("المديرية / المنطقة مطلوبة")
+        if (currentRole in listOf("client", "merchant") && address.trim().isBlank()) add("العنوان التفصيلي مطلوب")
+        if (currentRole == "merchant") {
+            if (businessName.trim().isBlank()) add(if (isPharmacy) "اسم الصيدلية الرسمي مطلوب" else "اسم المتجر مطلوب")
+            if (responsibleName.trim().isBlank()) add("اسم المسؤول مطلوب")
+            if (isPharmacy && licenseNumber.trim().isBlank()) add("رقم ترخيص الصيدلية مطلوب")
+            if (isPharmacy && workingHours.trim().isBlank()) add("ساعات عمل الصيدلية مطلوبة")
+            if (isMarketplace && merchantCategory.trim().isBlank()) add("تصنيف نشاط التاجر مطلوب")
+            if (isMarketplace && deliveryPolicy.trim().isBlank()) add("سياسة التوصيل/الاستلام مطلوبة")
+        }
+        if (currentRole == "driver") {
+            if (contactPhone.trim().isBlank()) add("رقم تواصل السائق مطلوب")
+            if (vehicleType.trim().isBlank()) add("نوع المركبة مطلوب")
+            if (vehiclePlate.trim().isBlank()) add("رقم المركبة مطلوب")
+        }
+    }
+    val canMarkComplete = profileIssues.isEmpty()
+    val approvalText = when (user.approvalStatus) {
+        "approved" -> "معتمد"
+        "pending" -> "بانتظار مراجعة الإدارة"
+        "incomplete" -> "ناقص البيانات"
+        "suspended" -> "معلّق"
+        else -> user.approvalStatus.ifBlank { "غير محدد" }
+    }
+    val saveResultText = if (currentRole == "merchant" || currentRole == "driver") "بانتظار اعتماد الإدارة" else "جاهز"
 
     Column(
         modifier = Modifier
@@ -5067,21 +5125,46 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
-            text = displayName.ifBlank { currentUser?.phone ?: "حساب غير معروف" },
+            text = displayName.ifBlank { user.phone },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "${getRoleArName(currentRole)} | ${getBusinessTypeArName(businessType)}",
+            text = "${getRoleArName(currentRole)} | ${getBusinessTypeArName(safeBusinessType)} | $approvalText",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.padding(top = 4.dp),
+            textAlign = TextAlign.Center
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (canMarkComplete) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+            ),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, if (canMarkComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = if (canMarkComplete) "ملفك مكتمل تشغيليًا" else "ملفك ناقص ولا يجب فتح كامل الصلاحيات بعد",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (canMarkComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+                if (profileIssues.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    profileIssues.take(5).forEach { issue ->
+                        Text("• $issue", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -5091,8 +5174,8 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                Text("بيانات الحساب الأساسية", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text("هذه البيانات تفصل الصيدلية عن تاجر السوق وتمنع خلط واجهات الدواء مع الملابس.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("1) بيانات الهوية", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("هذه المرحلة تحدد صلاحيات المستخدم وتمنع خلط الصيدليات مع تجار السوق.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedTextField(
@@ -5115,33 +5198,194 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text("نوع النشاط", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { businessType = "pharmacy" }) {
-                            RadioButton(selected = businessType == "pharmacy", onClick = { businessType = "pharmacy" })
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable {
+                            businessType = "pharmacy"
+                            merchantCategory = "pharmacy"
+                        }) {
+                            RadioButton(selected = businessType == "pharmacy", onClick = {
+                                businessType = "pharmacy"
+                                merchantCategory = "pharmacy"
+                            })
                             Text("صيدلية", fontSize = 11.sp)
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { businessType = "marketplace" }) {
-                            RadioButton(selected = businessType == "marketplace", onClick = { businessType = "marketplace" })
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable {
+                            businessType = "marketplace"
+                            if (merchantCategory == "pharmacy") merchantCategory = "clothes"
+                        }) {
+                            RadioButton(selected = businessType == "marketplace", onClick = {
+                                businessType = "marketplace"
+                                if (merchantCategory == "pharmacy") merchantCategory = "clothes"
+                            })
                             Text("سوق/ملابس", fontSize = 11.sp)
                         }
                     }
+                }
+            }
+        }
 
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (currentRole == "merchant") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(2.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(if (isPharmacy) "2) بيانات الصيدلية" else "2) بيانات المتجر", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = businessName,
                         onValueChange = { businessName = it },
-                        label = { Text(if (businessType == "pharmacy") "اسم الصيدلية الرسمي" else "اسم المتجر / البوتيك") },
+                        label = { Text(if (isPharmacy) "اسم الصيدلية الرسمي" else "اسم المتجر / البوتيك") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = licenseNumber,
-                        onValueChange = { licenseNumber = it },
-                        label = { Text(if (businessType == "pharmacy") "رقم ترخيص الصيدلية" else "رقم السجل / تعريف التاجر") },
+                        value = responsibleName,
+                        onValueChange = { responsibleName = it },
+                        label = { Text("اسم المسؤول") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = contactPhone,
+                        onValueChange = { contactPhone = it },
+                        label = { Text("رقم التواصل") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (isPharmacy) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = licenseNumber,
+                            onValueChange = { licenseNumber = it },
+                            label = { Text("رقم ترخيص الصيدلية") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = licenseImageUri,
+                            onValueChange = { licenseImageUri = it },
+                            label = { Text("رابط/مسار صورة الترخيص مؤقتًا") },
+                            supportingText = { Text("لاحقًا سيتم استبداله برفع صورة فعلي من الكاميرا أو المعرض.", fontSize = 10.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = workingHours,
+                            onValueChange = { workingHours = it },
+                            label = { Text("ساعات العمل مثال: 09:00 - 22:00") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("تصنيف النشاط", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Column {
+                            listOf("clothes" to "ملابس", "wholesale" to "جملة", "general_market" to "سوق عام").forEach { (value, label) ->
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { merchantCategory = value }) {
+                                    RadioButton(selected = merchantCategory == value, onClick = { merchantCategory = value })
+                                    Text(label, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = licenseNumber,
+                            onValueChange = { licenseNumber = it },
+                            label = { Text("رقم سجل/تعريف التاجر - اختياري") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = deliveryPolicy,
+                            onValueChange = { deliveryPolicy = it },
+                            label = { Text("سياسة التوصيل أو الاستلام") },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { deliversOrders = !deliversOrders }) {
+                        Checkbox(checked = deliversOrders, onCheckedChange = { deliversOrders = it })
+                        Text(if (isPharmacy) "الصيدلية توفر توصيل" else "المتجر يوفر توصيل", fontSize = 12.sp)
+                    }
+                    if (deliversOrders) {
+                        OutlinedTextField(
+                            value = serviceRadiusText,
+                            onValueChange = { serviceRadiusText = it.filter { ch -> ch.isDigit() }.take(3) },
+                            label = { Text("نطاق الخدمة بالكيلومتر") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        if (currentRole == "driver") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(2.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("2) بيانات السائق", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = contactPhone,
+                        onValueChange = { contactPhone = it },
+                        label = { Text("رقم تواصل السائق") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = vehicleType,
+                        onValueChange = { vehicleType = it },
+                        label = { Text("نوع المركبة: دراجة / سيارة / باص") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = vehiclePlate,
+                        onValueChange = { vehiclePlate = it },
+                        label = { Text("رقم المركبة") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+            }
 
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(2.dp),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(if (currentRole == "admin") "2) بيانات الإدارة" else "3) العنوان والموقع", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
@@ -5152,10 +5396,9 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
-                        value = currentUser?.phone ?: "",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("رقم الهاتف") },
+                        value = district,
+                        onValueChange = { district = it },
+                        label = { Text("المديرية / المنطقة") },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -5164,38 +5407,67 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it },
-                    label = { Text("العنوان التفصيلي / نطاق الخدمة") },
+                    label = { Text(if (currentRole == "merchant") "العنوان التفصيلي / نطاق الخدمة" else "العنوان التفصيلي") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = {
-                        val safeBusinessName = if (currentRole == "merchant") businessName else ""
-                        val safeBusinessType = when (currentRole) {
-                            "merchant" -> if (businessType == "pharmacy") "pharmacy" else "marketplace"
-                            "driver" -> "delivery"
-                            "admin" -> "admin"
-                            else -> "none"
-                        }
-                        viewModel.saveMyProfileDetails(
-                            fullName = fullName,
-                            displayName = displayName.ifBlank { fullName },
-                            businessType = safeBusinessType,
-                            businessName = safeBusinessName,
-                            city = city,
-                            address = address,
-                            licenseNumber = licenseNumber
-                        )
-                        Toast.makeText(context, "تم حفظ بيانات الملف", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Text("حفظ بيانات الحساب", color = Color.Black, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = gpsLatitudeText,
+                        onValueChange = { gpsLatitudeText = it.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }.take(12) },
+                        label = { Text("Latitude") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = gpsLongitudeText,
+                        onValueChange = { gpsLongitudeText = it.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }.take(12) },
+                        label = { Text("Longitude") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
+                Text("إحداثيات GPS اختيارية الآن؛ لاحقًا ستؤخذ من خدمة الموقع بدل الكتابة اليدوية.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = {
+                if (!canMarkComplete) {
+                    Toast.makeText(context, "أكمل الناقص: ${profileIssues.first()}", Toast.LENGTH_LONG).show()
+                    return@Button
+                }
+                viewModel.saveMyProfileDetails(
+                    fullName = fullName,
+                    displayName = displayName.ifBlank { fullName },
+                    businessType = safeBusinessType,
+                    businessName = if (currentRole == "merchant") businessName else "",
+                    responsibleName = responsibleName,
+                    contactPhone = contactPhone,
+                    city = city,
+                    district = district,
+                    address = address,
+                    gpsLatitude = gpsLatitudeText.toDoubleOrNull() ?: 0.0,
+                    gpsLongitude = gpsLongitudeText.toDoubleOrNull() ?: 0.0,
+                    licenseNumber = licenseNumber,
+                    licenseImageUri = licenseImageUri,
+                    workingHours = workingHours,
+                    deliversOrders = deliversOrders,
+                    serviceRadiusKm = serviceRadiusText.toIntOrNull() ?: 0,
+                    merchantCategory = if (isPharmacy) "pharmacy" else merchantCategory,
+                    deliveryPolicy = deliveryPolicy,
+                    vehicleType = vehicleType,
+                    vehiclePlate = vehiclePlate
+                )
+                Toast.makeText(context, "تم حفظ الملف؛ الحساب $saveResultText", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = if (canMarkComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        ) {
+            Text(if (canMarkComplete) "حفظ واعتماد اكتمال الملف" else "أكمل البيانات قبل الحفظ", color = Color.Black, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -5208,29 +5480,26 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("تفاصيل المحفظة والرصيد", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("تفاصيل المحفظة والحالة", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                 Divider(modifier = Modifier.padding(vertical = 12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("الرصيد المتاح:", fontSize = 14.sp)
-                    Text("${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "0.00"} ريال", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("${Money.formatMinor(user.walletBalanceMinor)} ريال", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("حالة الحساب:", fontSize = 14.sp)
-                    Text(
-                        if (currentUser?.status == "active") "نشط ومفعل" else "قيد المراجعة",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
+                    Text(if (user.status == "active") "نشط" else user.status, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("اكتمال البيانات:", fontSize = 14.sp)
-                    Text(
-                        if (currentUser?.isProfileComplete == true) "مكتمل" else "ناقص",
-                        fontWeight = FontWeight.Bold,
-                        color = if (currentUser?.isProfileComplete == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                    )
+                    Text(if (user.isProfileComplete) "مكتمل" else "ناقص", fontWeight = FontWeight.Bold, color = if (user.isProfileComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("اعتماد الإدارة:", fontSize = 14.sp)
+                    Text(approvalText, fontWeight = FontWeight.Bold, color = if (user.approvalStatus == "approved") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                 }
             }
         }

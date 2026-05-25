@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LedgerEntryEntity::class,
         OutboxEventEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -81,6 +81,12 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addBusinessSeparationColumns(db)
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addCompleteProfileColumns(db)
             }
         }
 
@@ -351,6 +357,33 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("UPDATE `users` SET businessName = displayName WHERE businessName = '' AND role = 'merchant'")
                 db.execSQL("UPDATE `users` SET city = CASE WHEN tenantId LIKE '%عدن%' THEN 'عدن - كريتر' ELSE 'صنعاء' END WHERE city = ''")
                 db.execSQL("UPDATE `users` SET isProfileComplete = 1 WHERE role IN ('merchant', 'driver', 'admin') AND displayName != ''")
+            }
+        }
+
+        private fun addCompleteProfileColumns(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "users", "responsibleName", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "contactPhone", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "district", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "gpsLatitude", "REAL NOT NULL DEFAULT 0.0")
+            addColumnIfMissing(db, "users", "gpsLongitude", "REAL NOT NULL DEFAULT 0.0")
+            addColumnIfMissing(db, "users", "licenseImageUri", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "workingHours", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "deliversOrders", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "users", "serviceRadiusKm", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "users", "merchantCategory", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "deliveryPolicy", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "vehicleType", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "vehiclePlate", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "approvalStatus", "TEXT NOT NULL DEFAULT 'pending'")
+
+            if (tableExists(db, "users")) {
+                db.execSQL("UPDATE `users` SET contactPhone = phone WHERE contactPhone = ''")
+                db.execSQL("UPDATE `users` SET responsibleName = fullName WHERE responsibleName = '' AND role IN ('merchant', 'driver')")
+                db.execSQL("UPDATE `users` SET merchantCategory = CASE WHEN businessType = 'pharmacy' THEN 'pharmacy' WHEN businessType = 'marketplace' THEN 'clothes' ELSE merchantCategory END WHERE merchantCategory = ''")
+                db.execSQL("UPDATE `users` SET deliveryPolicy = 'توصيل حسب الاتفاق داخل المدينة' WHERE deliveryPolicy = '' AND role = 'merchant'")
+                db.execSQL("UPDATE `users` SET workingHours = '09:00 - 22:00' WHERE workingHours = '' AND businessType = 'pharmacy'")
+                db.execSQL("UPDATE `users` SET approvalStatus = CASE WHEN role = 'admin' THEN 'approved' WHEN role = 'client' THEN 'approved' WHEN isProfileComplete = 1 THEN 'approved' ELSE 'pending' END WHERE approvalStatus = 'pending'")
+                db.execSQL("UPDATE `users` SET district = city WHERE district = '' AND city != ''")
             }
         }
 
