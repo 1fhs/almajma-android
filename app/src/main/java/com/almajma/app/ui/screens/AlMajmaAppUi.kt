@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.almajma.app.BuildConfig
 import com.almajma.app.data.database.*
 import com.almajma.app.data.network.NetworkMode
 import com.almajma.app.ui.PlatformViewModel
@@ -73,6 +74,9 @@ fun AlMajmaAppUi(viewModel: PlatformViewModel) {
             } else if (currentRole != "admin" && currentUser?.isProfileComplete != true) {
                 // لا تفتح السوق/الصيدلية/التوصيل قبل اكتمال بيانات الحساب.
                 ProfileScreen(viewModel = viewModel)
+            } else if (currentRole in listOf("merchant", "driver") && currentUser?.approvalStatus != "approved") {
+                // Phase 9: لا تفتح صلاحيات البيع أو التوصيل قبل اعتماد الإدارة.
+                PendingApprovalScreen(viewModel = viewModel)
             } else {
                 // Render the selected Profile (4-apps-in-1)
                 Crossfade(targetState = currentRole, label = "RoleAppTransition") { role ->
@@ -206,6 +210,77 @@ fun OrderLifecycleStrip(status: String) {
             }
         }
     }
+}
+
+
+@Composable
+fun PendingApprovalScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val user = currentUser ?: return
+    val approvalTitle = when (user.approvalStatus) {
+        "pending" -> "حسابك بانتظار اعتماد الإدارة"
+        "suspended" -> "حسابك معلّق مؤقتًا"
+        "incomplete" -> "بيانات الحساب غير مكتملة"
+        else -> "حسابك غير معتمد"
+    }
+    val approvalMessage = when (user.role) {
+        "merchant" -> if (user.businessType == "pharmacy") {
+            "لا تستطيع الصيدلية استقبال طلبات الدواء أو تقديم عروض قبل مراجعة الترخيص واعتماد الحساب."
+        } else {
+            "لا يستطيع المتجر نشر المنتجات أو استقبال طلبات السوق قبل اعتماد الإدارة."
+        }
+        "driver" -> "لا يستطيع السائق استلام طلبات التوصيل قبل اعتماد بيانات المركبة والحساب."
+        else -> "هذا الحساب يحتاج مراجعة قبل تفعيل الصلاحيات."
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Info, contentDescription = "بانتظار الاعتماد", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.secondary)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(approvalTitle, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.secondary)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(approvalMessage, fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("الحالة الحالية: ${approvalText(user.approvalStatus)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        when (user.role) {
+                            "merchant" -> viewModel.navigateMerchantTo("profile")
+                            "driver" -> viewModel.navigateDriverTo("profile")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("مراجعة بيانات الحساب", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = { viewModel.logout() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("تسجيل الخروج")
+                }
+            }
+        }
+    }
+}
+
+fun approvalText(status: String): String = when (status) {
+    "approved" -> "معتمد"
+    "pending" -> "بانتظار مراجعة الإدارة"
+    "suspended" -> "معلّق"
+    "incomplete" -> "ناقص البيانات"
+    else -> status.ifBlank { "غير محدد" }
 }
 
 // ==========================================
@@ -372,10 +447,13 @@ fun RoleSwitchButton(label: String, active: Boolean, onClick: () -> Unit) {
 // ==========================================
 @Composable
 fun AuthScreenAr(viewModel: PlatformViewModel) {
+    val context = LocalContext.current
     val phoneInput by viewModel.phoneInput.collectAsStateWithLifecycle()
     val otpInput by viewModel.otpInput.collectAsStateWithLifecycle()
     val isWaitingForOtp by viewModel.isWaitingForOtp.collectAsStateWithLifecycle()
     val selectedAuthRole by viewModel.selectedAuthRole.collectAsStateWithLifecycle()
+    var adminAccessCode by remember { mutableStateOf("") }
+    val adminUnlocked = adminAccessCode.trim() == BuildConfig.ADMIN_ACCESS_CODE
 
     Column(
         modifier = Modifier
@@ -444,7 +522,7 @@ fun AuthScreenAr(viewModel: PlatformViewModel) {
 
             // Account type selector during signup
             Text(
-                text = "اختر طبيعة حساب الدخول للتجربة:",
+                text = "اختر نوع الحساب:",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -493,25 +571,39 @@ fun AuthScreenAr(viewModel: PlatformViewModel) {
                         onClick = { viewModel.selectedAuthRole.value = "driver" }
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                OutlinedTextField(
+                    value = adminAccessCode,
+                    onValueChange = {
+                        adminAccessCode = it.take(12)
+                        if (it.trim() != BuildConfig.ADMIN_ACCESS_CODE && selectedAuthRole == "admin") {
+                            viewModel.selectedAuthRole.value = "client"
+                        }
+                    },
+                    label = { Text("رمز دخول الإدارة - لا يظهر للمستخدم العادي") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (adminUnlocked) {
                     RoleSelectionCard(
                         title = "أدمن",
                         desc = "لوحة الإدارة، الاعتماد، التقارير",
                         active = selectedAuthRole == "admin",
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         onClick = { viewModel.selectedAuthRole.value = "admin" }
                     )
-                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
             Button(
-                onClick = { viewModel.requestOtp() },
+                onClick = {
+                    if (selectedAuthRole == "admin" && !adminUnlocked) {
+                        Toast.makeText(context, "رمز الإدارة غير صحيح", Toast.LENGTH_LONG).show()
+                    } else {
+                        viewModel.requestOtp()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
@@ -530,13 +622,13 @@ fun AuthScreenAr(viewModel: PlatformViewModel) {
             ) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "محاكاة رمز التأكيد الموجه للجوال $phoneInput",
+                        text = "تم إرسال رمز التأكيد إلى $phoneInput",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "الرمز الافتراضي للتجربة هو: 1234",
+                        text = "استخدم رمز الاختبار الداخلي في نسخة التطوير.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )

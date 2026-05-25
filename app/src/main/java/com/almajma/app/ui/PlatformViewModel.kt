@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
+import com.almajma.app.BuildConfig
 import com.almajma.app.data.database.*
 import com.almajma.app.data.network.ConnectionManager
 import com.almajma.app.data.network.NetworkMode
@@ -212,6 +213,7 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
 
     // Role controller
     fun switchRole(role: String) {
+        if (!BuildConfig.ENABLE_DEMO_TOOLS) return
         viewModelScope.launch {
             _currentRole.value = role
             // Auto switch simulated backend login matching the seeded users to provide quick high fidelity interactions
@@ -257,6 +259,7 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun triggerQuickLogin(phone: String, role: String) {
+        if (!BuildConfig.ENABLE_DEMO_TOOLS) return
         viewModelScope.launch {
             phoneInput.value = phone
             selectedAuthRole.value = role
