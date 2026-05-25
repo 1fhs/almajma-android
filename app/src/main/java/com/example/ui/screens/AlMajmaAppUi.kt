@@ -3292,6 +3292,8 @@ fun MerchantBottomNav(currentScreen: String, businessType: String, onNav: (Strin
 fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val products by viewModel.products.collectAsStateWithLifecycle()
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val allOffers by viewModel.allPharmacyOffers.collectAsStateWithLifecycle()
     var storeIsOpen by remember { mutableStateOf(true) }
 
     LazyColumn(
@@ -3336,6 +3338,46 @@ fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
                             Text("أرباح معلقة قيد الضمان", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("18,500 ريال", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
                         }
+                    }
+                }
+            }
+        }
+
+        item {
+            val myProductsNow = products.filter { it.merchantId == currentUser?.id }
+            val myOrdersNow = orders.filter { it.merchantId == currentUser?.id }
+            val myOpenOrders = myOrdersNow.count { it.status in listOf("funds_frozen", "preparing", "ready", "delivering", "pending") }
+            val myCompletedOrders = myOrdersNow.count { it.status == "completed" }
+            val myDisputedOrders = myOrdersNow.count { it.status == "disputed" }
+            val myGrossMinor = myOrdersNow.filter { it.status == "completed" }.sumOf { it.totalPriceMinor + it.deliveryFeeMinor }
+            val myEscrowMinor = myOrdersNow.filter { it.status in listOf("funds_frozen", "preparing", "ready", "delivering") }.sumOf { it.totalPriceMinor + it.deliveryFeeMinor }
+            val myMedicineRequests = if (currentUser?.businessType == "pharmacy") orders.count { it.category == "medicine" && it.status in listOf("waiting_offers", "pending") } else 0
+            val myOffersCount = allOffers.count { it.merchantId == currentUser?.id }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.25f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(if (currentUser?.businessType == "pharmacy") "📊 تقرير الصيدلية السريع" else "📊 تقرير المتجر السريع", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    Text("تقرير محلي لمراقبة الطلبات والمخزون. الإنتاج يحتاج تقارير من السيرفر.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("منتجاتي", myProductsNow.size.toString(), if (currentUser?.businessType == "pharmacy") "أدوية" else "سوق", Modifier.weight(1f))
+                        AdminMiniReportCard("طلبات مفتوحة", myOpenOrders.toString(), "تحتاج متابعة", Modifier.weight(1f))
+                        AdminMiniReportCard("مكتملة", myCompletedOrders.toString(), "مغلقة", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("بالضمان", Money.formatMinor(myEscrowMinor), "ر.ي", Modifier.weight(1f))
+                        AdminMiniReportCard("إجمالي مكتمل", Money.formatMinor(myGrossMinor), "ر.ي", Modifier.weight(1f))
+                        AdminMiniReportCard("نزاعات", myDisputedOrders.toString(), "مخاطر", Modifier.weight(1f))
+                    }
+                    if (currentUser?.businessType == "pharmacy") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("طلبات دواء مفتوحة للبث: $myMedicineRequests | عروضك المقدمة: $myOffersCount", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -3513,7 +3555,7 @@ fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
         item { Spacer(modifier = Modifier.height(16.dp)) }
 
         // List Medicines & Recalls Dashboard of Pharmacies
-        val myProducts = products
+        val myProducts = products.filter { it.merchantId == currentUser?.id }
 
         if (myProducts.isNotEmpty()) {
             item {
@@ -4810,6 +4852,143 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
             }
         }
 
+
+        // Section 06: Admin command center - approvals and live operations
+        item {
+            val customers = users.filter { it.role == "client" }
+            val pharmacies = users.filter { it.role == "merchant" && it.businessType == "pharmacy" }
+            val marketMerchants = users.filter { it.role == "merchant" && it.businessType == "marketplace" }
+            val drivers = users.filter { it.role == "driver" }
+            val admins = users.filter { it.role == "admin" }
+            val pendingAccounts = users.filter { it.role != "client" && it.role != "admin" && it.isProfileComplete && it.approvalStatus == "pending" }
+            val suspendedAccounts = users.filter { it.approvalStatus == "suspended" }
+            val pendingPharmacies = pharmacies.filter { it.approvalStatus == "pending" }
+            val pendingMarketMerchants = marketMerchants.filter { it.approvalStatus == "pending" }
+            val pendingDrivers = drivers.filter { it.approvalStatus == "pending" }
+            val activeTodayOrders = orders.filter { System.currentTimeMillis() - it.timestamp <= 24L * 60L * 60L * 1000L }
+            val frozenEscrowMinor = orders
+                .filter { it.status in listOf("funds_frozen", "preparing", "ready", "delivering") }
+                .sumOf { it.totalPriceMinor + it.deliveryFeeMinor }
+            val completedGrossMinor = orders.filter { it.status == "completed" }.sumOf { it.totalPriceMinor + it.deliveryFeeMinor }
+            val commissionMinor = orders.sumOf { it.commissionAmountMinor }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.35f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("🛡️ المرحلة 6: لوحة إدارة تشغيلية", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    Text("ليست أرقام شكلية فقط: فصل حسابات، اعتماد، تعليق، ومؤشرات ضمان حسب القطاعات.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("العملاء", customers.size.toString(), "حسابات شراء", Modifier.weight(1f))
+                        AdminMiniReportCard("الصيدليات", pharmacies.size.toString(), "قطاع دوائي", Modifier.weight(1f))
+                        AdminMiniReportCard("تجار السوق", marketMerchants.size.toString(), "ملابس/جملة", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("السائقين", drivers.size.toString(), "خدمة توصيل", Modifier.weight(1f))
+                        AdminMiniReportCard("بانتظار اعتماد", pendingAccounts.size.toString(), "حسابات تشغيل", Modifier.weight(1f))
+                        AdminMiniReportCard("معلّقة", suspendedAccounts.size.toString(), "خطر/إيقاف", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("طلبات اليوم", activeTodayOrders.size.toString(), "آخر 24 ساعة", Modifier.weight(1f))
+                        AdminMiniReportCard("ضمان مجمد", Money.formatMinor(frozenEscrowMinor), "ر.ي", Modifier.weight(1f))
+                        AdminMiniReportCard("عمولات", Money.formatMinor(commissionMinor), "ر.ي محلي", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("إجمالي مكتمل محليًا: ${Money.formatMinor(completedGrossMinor)} ر.ي | الأدمن: ${admins.size}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AdminSectionTitle("قائمة الاعتماد السريع")
+                    val approvalPreview = pendingAccounts.take(8)
+                    if (approvalPreview.isEmpty()) {
+                        AdminEmptyText("لا توجد حسابات مكتملة بانتظار الاعتماد الآن.")
+                    } else {
+                        approvalPreview.forEach { account ->
+                            AdminUserApprovalRow(
+                                user = account,
+                                onApprove = { viewModel.approveUserAccount(account.id) },
+                                onSuspend = { viewModel.suspendUserAccount(account.id, "تعليق من لوحة الإدارة لعدم وضوح البيانات أو الحاجة لمراجعة إضافية") }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("الطوابير: صيدليات ${pendingPharmacies.size} | تجار ${pendingMarketMerchants.size} | سائقين ${pendingDrivers.size}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        // Section 07: Reports center
+        item {
+            val medicineOrdersList = orders.filter { it.category == "medicine" || it.marketSector == "pharmacy" }
+            val marketOrdersList = orders.filter { it.marketSector == "marketplace" || isMarketplaceCategory(it.category) }
+            val influencerOrdersList = orders.filter { it.marketSector == "influencer" || isInfluencerCategory(it.category) }
+            val deliveryOrdersList = orders.filter { it.marketSector == "delivery" || isDeliveryCategory(it.category) }
+            val cancelledOrders = orders.filter { it.status in listOf("cancelled", "refunded") }
+            val disputedOrders = orders.filter { it.status == "disputed" }
+            val activePrescriptionOrders = orders.filter { it.needsPrescription || it.prescriptionAttached }
+            val medicineProductsList = products.filter { it.category == "medicine" }
+            val marketProductsList = products.filter { isMarketplaceCategory(it.category) }
+            val recalledMedicine = medicineProductsList.count { it.isRecalled }
+            val expiredMedicine = medicineProductsList.count { it.expiryTimestamp < System.currentTimeMillis() }
+            val pharmacyOfferCount = allPharmacyOffers.size
+            val acceptedOfferCount = allPharmacyOffers.count { it.status == "accepted" }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(0.35f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("📊 المرحلة 7: مركز التقارير", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
+                    Text("تقارير تشغيلية مبدئية حسب القطاع والحالة. هذه محلية الآن، والنسخة الإنتاجية يجب أن تصدر من Backend.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    AdminSectionTitle("تقرير الطلبات حسب القطاع")
+                    AdminReportBarRow("صيدليات وأدوية", medicineOrdersList.size, orders.size, MaterialTheme.colorScheme.primary)
+                    AdminReportBarRow("سوق وملابس", marketOrdersList.size, orders.size, MaterialTheme.colorScheme.secondary)
+                    AdminReportBarRow("مشاهير", influencerOrdersList.size, orders.size, MaterialTheme.colorScheme.tertiary)
+                    AdminReportBarRow("خدمة توصيل", deliveryOrdersList.size, orders.size, MaterialTheme.colorScheme.error)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("وصفات", activePrescriptionOrders.size.toString(), "طلبات حساسة", Modifier.weight(1f))
+                        AdminMiniReportCard("عروض دواء", pharmacyOfferCount.toString(), "مقدمة", Modifier.weight(1f))
+                        AdminMiniReportCard("عروض مقبولة", acceptedOfferCount.toString(), "تحولت لضمان", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("ملغاة/مسترجعة", cancelledOrders.size.toString(), "مخاطر تشغيل", Modifier.weight(1f))
+                        AdminMiniReportCard("متنازع عليها", disputedOrders.size.toString(), "تحتاج حكم", Modifier.weight(1f))
+                        AdminMiniReportCard("منتجات السوق", marketProductsList.size.toString(), "معروضة", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("أدوية", medicineProductsList.size.toString(), "كتالوج", Modifier.weight(1f))
+                        AdminMiniReportCard("مسحوبة", recalledMedicine.toString(), "إيقاف دوائي", Modifier.weight(1f))
+                        AdminMiniReportCard("منتهية", expiredMedicine.toString(), "صلاحية", Modifier.weight(1f))
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AdminSectionTitle("آخر العمليات")
+                    if (orders.isEmpty()) {
+                        AdminEmptyText("لا توجد طلبات كافية لعرض التقرير.")
+                    } else {
+                        orders.take(8).forEach { order ->
+                            AdminOrderReportRow(order)
+                        }
+                    }
+                }
+            }
+        }
+
         // Section 0: Real operations control - disputes, prescriptions, pharmacy verification
         item {
             Card(
@@ -5521,6 +5700,121 @@ fun AdminMiniReportCard(title: String, value: String, subtitle: String, modifier
             Text(title, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(value, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
             Text(subtitle, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+
+@Composable
+fun AdminSectionTitle(title: String) {
+    Text(
+        text = title,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
+}
+
+@Composable
+fun AdminEmptyText(text: String) {
+    Text(
+        text = text,
+        fontSize = 10.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(vertical = 6.dp)
+    )
+}
+
+@Composable
+fun AdminUserApprovalRow(user: UserEntity, onApprove: () -> Unit, onSuspend: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.35f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(user.businessName.ifBlank { user.displayName.ifBlank { user.fullName.ifBlank { user.phone } } }, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${getRoleArName(user.role)} | ${getBusinessTypeArName(user.businessType)} | ${user.city.ifBlank { "بدون مدينة" }}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (user.licenseNumber.isNotBlank()) {
+                        Text("ترخيص/تعريف: ${user.licenseNumber}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text(
+                    text = when (user.approvalStatus) {
+                        "approved" -> "معتمد"
+                        "pending" -> "معلق"
+                        "suspended" -> "موقوف"
+                        "incomplete" -> "ناقص"
+                        else -> user.approvalStatus
+                    },
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (user.approvalStatus == "pending") MaterialTheme.colorScheme.secondary else if (user.approvalStatus == "suspended") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onApprove, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) {
+                    Text("اعتماد", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(onClick = onSuspend, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) {
+                    Text("تعليق", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminReportBarRow(label: String, value: Int, total: Int, color: Color) {
+    val pct = if (total <= 0) 0f else (value.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("$value / $total", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(pct)
+                    .background(color)
+            )
+        }
+    }
+}
+
+@Composable
+fun AdminOrderReportRow(order: OrderEntity) {
+    val statusColor = when (order.status) {
+        "completed" -> MaterialTheme.colorScheme.primary
+        "disputed", "cancelled", "refunded" -> MaterialTheme.colorScheme.error
+        "funds_frozen", "preparing", "ready", "delivering" -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.28f)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("#${order.id} ${order.productName}", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(order.status, fontSize = 9.sp, color = statusColor, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("القطاع: ${order.marketSector.ifBlank { categoryArName(order.category) }} | كمية: ${order.quantity} | مبلغ: ${Money.formatMinor(order.totalPriceMinor + order.deliveryFeeMinor)} ر.ي", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

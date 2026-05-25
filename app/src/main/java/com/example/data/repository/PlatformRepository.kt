@@ -989,6 +989,7 @@ class PlatformRepository(
     suspend fun approvePharmacyVerification(merchantId: Int): Boolean {
         val current = pharmacyVerificationDao.getVerificationForMerchant(merchantId) ?: return false
         pharmacyVerificationDao.updateVerification(current.copy(status = "approved", rejectionReason = ""))
+        userDao.updateApprovalStatus(merchantId, "approved")
         notifyUser(current.tenantId, merchantId, null, "تم اعتماد الصيدلية", "تم تفعيل حسابك لقبول طلبات الدواء وإرسال عروض أسعار.", "success")
         enqueueOutboxEvent(current.tenantId, "PHARMACY_VERIFICATION_APPROVED", "{ merchantId: $merchantId }")
         return true
@@ -997,8 +998,37 @@ class PlatformRepository(
     suspend fun rejectPharmacyVerification(merchantId: Int, reason: String): Boolean {
         val current = pharmacyVerificationDao.getVerificationForMerchant(merchantId) ?: return false
         pharmacyVerificationDao.updateVerification(current.copy(status = "rejected", rejectionReason = reason))
+        userDao.updateApprovalStatus(merchantId, "suspended")
         notifyUser(current.tenantId, merchantId, null, "رفض اعتماد الصيدلية", reason, "danger")
         enqueueOutboxEvent(current.tenantId, "PHARMACY_VERIFICATION_REJECTED", "{ merchantId: $merchantId, reason: '$reason' }")
+        return true
+    }
+
+    suspend fun approveUserAccount(userId: Int): Boolean {
+        val user = userDao.getUserById(userId) ?: return false
+        userDao.updateApprovalStatus(userId, "approved")
+        if (user.businessType == "pharmacy") {
+            val verification = pharmacyVerificationDao.getVerificationForMerchant(userId)
+            if (verification != null) {
+                pharmacyVerificationDao.updateVerification(verification.copy(status = "approved", rejectionReason = ""))
+            }
+        }
+        notifyUser(user.tenantId, userId, null, "تم اعتماد الحساب", "تم اعتماد حسابك وتشغيل صلاحياتك حسب نوع النشاط.", "success")
+        enqueueOutboxEvent(user.tenantId, "USER_ACCOUNT_APPROVED", "{ userId: $userId, role: '${user.role}', businessType: '${user.businessType}' }")
+        return true
+    }
+
+    suspend fun suspendUserAccount(userId: Int, reason: String = "تعليق إداري مؤقت"): Boolean {
+        val user = userDao.getUserById(userId) ?: return false
+        userDao.updateApprovalStatus(userId, "suspended")
+        if (user.businessType == "pharmacy") {
+            val verification = pharmacyVerificationDao.getVerificationForMerchant(userId)
+            if (verification != null) {
+                pharmacyVerificationDao.updateVerification(verification.copy(status = "suspended", rejectionReason = reason))
+            }
+        }
+        notifyUser(user.tenantId, userId, null, "تم تعليق الحساب", reason, "danger")
+        enqueueOutboxEvent(user.tenantId, "USER_ACCOUNT_SUSPENDED", "{ userId: $userId, reason: '$reason' }")
         return true
     }
 

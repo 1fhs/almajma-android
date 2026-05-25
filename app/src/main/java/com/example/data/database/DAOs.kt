@@ -77,6 +77,9 @@ interface UserDao {
 
     @Query("UPDATE users SET walletBalance = :newBalance, walletBalanceMinor = CAST(ROUND(:newBalance * 100.0) AS INTEGER) WHERE id = :id")
     suspend fun updateWalletBalance(id: Int, newBalance: Double)
+
+    @Query("UPDATE users SET approvalStatus = :approvalStatus WHERE id = :id")
+    suspend fun updateApprovalStatus(id: Int, approvalStatus: String)
 }
 
 @Dao

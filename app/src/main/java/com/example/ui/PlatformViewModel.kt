@@ -815,6 +815,15 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.rejectPharmacyVerification(merchantId, reason) }
     }
 
+
+    fun approveUserAccount(userId: Int) {
+        viewModelScope.launch { repository.approveUserAccount(userId) }
+    }
+
+    fun suspendUserAccount(userId: Int, reason: String = "تعليق إداري مؤقت من لوحة الإدارة") {
+        viewModelScope.launch { repository.suspendUserAccount(userId, reason) }
+    }
+
     fun markMyNotificationsRead() {
         viewModelScope.launch {
             val user = _currentUser.value ?: return@launch
