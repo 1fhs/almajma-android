@@ -1099,7 +1099,15 @@ class PlatformRepository(
         batchNumber: String,
         expiryTimestamp: Long,
         purchaseCost: Double,
-        totalStock: Int
+        totalStock: Int,
+        activeIngredient: String = "",
+        medicineForm: String = "",
+        strengthText: String = "",
+        therapeuticCategory: String = "",
+        requiresPrescription: Boolean = false,
+        manufacturerCountry: String = "",
+        barcode: String = "",
+        dosageHint: String = ""
     ) {
         val merchant = userDao.getUserById(merchantId)
         val tenant = merchant?.tenantId ?: "tenant_صنعاء_وسط"
@@ -1113,6 +1121,15 @@ class PlatformRepository(
             price = price,
             category = safeCategory,
             locationName = location,
+            brand = if (safeCategory == "medicine") manufacturerCountry.ifBlank { "غير محدد" } else "",
+            activeIngredient = activeIngredient,
+            medicineForm = medicineForm,
+            strengthText = strengthText,
+            therapeuticCategory = therapeuticCategory,
+            requiresPrescription = requiresPrescription,
+            manufacturerCountry = manufacturerCountry,
+            barcode = barcode,
+            dosageHint = dosageHint,
             batchNumber = batchNumber,
             expiryTimestamp = expiryTimestamp,
             purchaseCost = purchaseCost,
@@ -1193,10 +1210,10 @@ class PlatformRepository(
             userDao.updateWalletBalance(adminId, 0.0)
 
             // Seed Products for Pharmacy with pharmacological details (Batch, Expiry, FIFO, stock)
-            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "بندول اكسترا فضي 24 حبة", price = 1500.0, category = "medicine", locationName = "صنعاء - شارع حدة", batchNumber = "B-8822-EXP", expiryTimestamp = System.currentTimeMillis() + (220 * 24 * 3600 * 1000L), purchaseCost = 1100.0, isRecalled = false, totalStock = 120))
-            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "مضاد حيوي أوجمنتين 1 جم", price = 4800.0, category = "medicine", locationName = "صنعاء - شارع حدة", batchNumber = "B-12C4-OUT", expiryTimestamp = System.currentTimeMillis() + (310 * 24 * 3600 * 1000L), purchaseCost = 3500.0, isRecalled = false, totalStock = 45))
-            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "مشروب جفاف محلول للأطفال", price = 600.0, category = "medicine", locationName = "عدن - كريتر", batchNumber = "B-9102-SOU", expiryTimestamp = System.currentTimeMillis() - 2 * 24 * 3600 * 1000L, purchaseCost = 420.0, isRecalled = false, totalStock = 90)) // Expired to trigger indicators!
-            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "شراب فيتامين د3 قطرات للأطفال", price = 1200.0, category = "medicine", locationName = "ش. صنعاء", batchNumber = "B-5489-REC", expiryTimestamp = System.currentTimeMillis() + (400 * 24 * 3600 * 1000L), purchaseCost = 800.0, isRecalled = true, totalStock = 300)) // Recalled to trigger alert filters!
+            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "بندول اكسترا فضي 24 حبة", price = 1500.0, category = "medicine", locationName = "صنعاء - شارع حدة", description = "مسكن وخافض حرارة", brand = "Panadol", activeIngredient = "Paracetamol + Caffeine", medicineForm = "tablet", strengthText = "500mg", therapeuticCategory = "painkiller", requiresPrescription = false, manufacturerCountry = "Yemen", barcode = "MED-PAN-0001", dosageHint = "حسب إرشادات الطبيب أو النشرة", batchNumber = "B-8822-EXP", expiryTimestamp = System.currentTimeMillis() + (220 * 24 * 3600 * 1000L), purchaseCost = 1100.0, isRecalled = false, totalStock = 120))
+            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "مضاد حيوي أوجمنتين 1 جم", price = 4800.0, category = "medicine", locationName = "صنعاء - شارع حدة", description = "مضاد حيوي واسع الاستخدام ويحتاج وصفة", brand = "Augmentin", activeIngredient = "Amoxicillin + Clavulanic Acid", medicineForm = "tablet", strengthText = "1g", therapeuticCategory = "antibiotic", requiresPrescription = true, manufacturerCountry = "UK", barcode = "MED-AUG-0001", dosageHint = "لا يصرف إلا بوصفة", batchNumber = "B-12C4-OUT", expiryTimestamp = System.currentTimeMillis() + (310 * 24 * 3600 * 1000L), purchaseCost = 3500.0, isRecalled = false, totalStock = 45))
+            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "مشروب جفاف محلول للأطفال", price = 600.0, category = "medicine", locationName = "عدن - كريتر", description = "أملاح معالجة الجفاف للأطفال", brand = "ORS", activeIngredient = "Oral Rehydration Salts", medicineForm = "solution", strengthText = "ORS", therapeuticCategory = "dehydration", requiresPrescription = false, manufacturerCountry = "Yemen", barcode = "MED-ORS-0001", dosageHint = "حسب تعليمات الطبيب للأطفال", batchNumber = "B-9102-SOU", expiryTimestamp = System.currentTimeMillis() - 2 * 24 * 3600 * 1000L, purchaseCost = 420.0, isRecalled = false, totalStock = 90)) // Expired to trigger indicators!
+            productDao.insertProduct(ProductEntity(tenantId = "tenant_عدن_صيدلة", merchantId = pharmacyId, name = "شراب فيتامين د3 قطرات للأطفال", price = 1200.0, category = "medicine", locationName = "ش. صنعاء", description = "مكمل فيتامين د للأطفال", brand = "D3", activeIngredient = "Vitamin D3", medicineForm = "drops", strengthText = "400 IU", therapeuticCategory = "vitamins", requiresPrescription = false, manufacturerCountry = "India", barcode = "MED-D3-0001", dosageHint = "حسب العمر والوزن", batchNumber = "B-5489-REC", expiryTimestamp = System.currentTimeMillis() + (400 * 24 * 3600 * 1000L), purchaseCost = 800.0, isRecalled = true, totalStock = 300)) // Recalled to trigger alert filters!
 
             // Seed Clothes
             productDao.insertProduct(ProductEntity(tenantId = "tenant_صنعاء_وسط", merchantId = boutiqueId, name = "شال حرير دبل يمني مخيط", price = 14000.0, category = "clothing", locationName = "أبين - سوق الجملة"))

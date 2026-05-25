@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LedgerEntryEntity::class,
         OutboxEventEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -87,6 +87,12 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addCompleteProfileColumns(db)
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addMedicineSearchColumns(db)
             }
         }
 
@@ -384,6 +390,24 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("UPDATE `users` SET workingHours = '09:00 - 22:00' WHERE workingHours = '' AND businessType = 'pharmacy'")
                 db.execSQL("UPDATE `users` SET approvalStatus = CASE WHEN role = 'admin' THEN 'approved' WHEN role = 'client' THEN 'approved' WHEN isProfileComplete = 1 THEN 'approved' ELSE 'pending' END WHERE approvalStatus = 'pending'")
                 db.execSQL("UPDATE `users` SET district = city WHERE district = '' AND city != ''")
+            }
+        }
+
+        private fun addMedicineSearchColumns(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "products", "activeIngredient", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "medicineForm", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "strengthText", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "therapeuticCategory", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "requiresPrescription", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "products", "manufacturerCountry", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "barcode", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "dosageHint", "TEXT NOT NULL DEFAULT ''")
+
+            if (tableExists(db, "products")) {
+                db.execSQL("UPDATE `products` SET activeIngredient = 'Paracetamol + Caffeine', medicineForm = 'tablet', strengthText = '500mg', therapeuticCategory = 'painkiller', requiresPrescription = 0, manufacturerCountry = 'Yemen', barcode = 'MED-PAN-0001' WHERE category = 'medicine' AND name LIKE '%بندول%'")
+                db.execSQL("UPDATE `products` SET activeIngredient = 'Amoxicillin + Clavulanic Acid', medicineForm = 'tablet', strengthText = '1g', therapeuticCategory = 'antibiotic', requiresPrescription = 1, manufacturerCountry = 'UK', barcode = 'MED-AUG-0001' WHERE category = 'medicine' AND name LIKE '%أوجمنتين%'")
+                db.execSQL("UPDATE `products` SET activeIngredient = 'Oral Rehydration Salts', medicineForm = 'solution', strengthText = 'ORS', therapeuticCategory = 'dehydration', requiresPrescription = 0, manufacturerCountry = 'Yemen', barcode = 'MED-ORS-0001' WHERE category = 'medicine' AND name LIKE '%جفاف%'")
+                db.execSQL("UPDATE `products` SET activeIngredient = 'Vitamin D3', medicineForm = 'drops', strengthText = '400 IU', therapeuticCategory = 'vitamins', requiresPrescription = 0, manufacturerCountry = 'India', barcode = 'MED-D3-0001' WHERE category = 'medicine' AND name LIKE '%فيتامين%'")
             }
         }
 

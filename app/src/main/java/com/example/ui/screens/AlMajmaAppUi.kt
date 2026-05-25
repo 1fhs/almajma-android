@@ -1616,51 +1616,106 @@ fun ClientRideHailingScreen(viewModel: PlatformViewModel) {
 // ------------------------------------------
 @Composable
 fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
-    var searchMedicineText by remember { mutableStateOf("حبوب أنسولين ميكستارد") }
+    val products by viewModel.products.collectAsStateWithLifecycle()
+
+    var searchMedicineText by remember { mutableStateOf("") }
+    var activeIngredientQuery by remember { mutableStateOf("") }
+    var selectedMedicineCity by remember { mutableStateOf("all") }
+    var selectedTherapeuticCategory by remember { mutableStateOf("all") }
+    var selectedForm by remember { mutableStateOf("all") }
+    var prescriptionFilter by remember { mutableStateOf("all") } // all, required, not_required
+    var onlyAvailable by remember { mutableStateOf(true) }
+    var sortMode by remember { mutableStateOf("relevance") } // relevance, price_asc, stock_desc, expiry_asc
     var mockImageAttached by remember { mutableStateOf(false) }
     var isSimulatingCamera by remember { mutableStateOf(false) }
     var runningOcrAudit by remember { mutableStateOf(false) }
     var ocrAuditFinished by remember { mutableStateOf(false) }
 
-    val products by viewModel.products.collectAsStateWithLifecycle()
-    var onlyAvailable by remember { mutableStateOf(true) }
-    var selectedMedicineCity by remember { mutableStateOf("all") }
     val allMedicines = products.filter { it.category == "medicine" }
-    val currentTimestampForFilter = System.currentTimeMillis()
-    val medicines = allMedicines.filter { medicine ->
-        val matchesText = searchMedicineText.isBlank() ||
-            medicine.name.contains(searchMedicineText, ignoreCase = true) ||
-            medicine.brand.contains(searchMedicineText, ignoreCase = true) ||
-            medicine.description.contains(searchMedicineText, ignoreCase = true) ||
-            medicine.batchNumber.contains(searchMedicineText, ignoreCase = true)
-        val matchesAvailability = !onlyAvailable || (medicine.isAvailable && !medicine.isRecalled && medicine.expiryTimestamp > currentTimestampForFilter && medicine.totalStock > 0)
-        val matchesCity = selectedMedicineCity == "all" || medicine.locationName.contains(selectedMedicineCity, ignoreCase = true)
-        matchesText && matchesAvailability && matchesCity
+    val now = System.currentTimeMillis()
+    val cityOptions = listOf("all" to "كل المدن", "صنعاء" to "صنعاء", "عدن" to "عدن")
+    val categoryOptions = listOf(
+        "all" to "كل التصنيفات",
+        "painkiller" to "مسكنات",
+        "antibiotic" to "مضادات",
+        "diabetes" to "سكري",
+        "pressure" to "ضغط",
+        "vitamins" to "فيتامينات",
+        "dehydration" to "جفاف"
+    )
+    val formOptions = listOf(
+        "all" to "كل الأشكال",
+        "tablet" to "حبوب",
+        "syrup" to "شراب",
+        "injection" to "حقن",
+        "drops" to "قطرات",
+        "solution" to "محلول",
+        "cream" to "كريم"
+    )
+
+    fun normalize(value: String): String = value.trim().lowercase()
+    fun matchesQuery(medicine: ProductEntity): Boolean {
+        val q = normalize(searchMedicineText)
+        val ingredientQ = normalize(activeIngredientQuery)
+        val textHit = q.isBlank() || listOf(
+            medicine.name,
+            medicine.brand,
+            medicine.description,
+            medicine.batchNumber,
+            medicine.barcode,
+            medicine.strengthText,
+            medicine.manufacturerCountry,
+            medicine.therapeuticCategory
+        ).any { normalize(it).contains(q) }
+        val ingredientHit = ingredientQ.isBlank() || normalize(medicine.activeIngredient).contains(ingredientQ)
+        return textHit && ingredientHit
     }
 
+    val filteredMedicines = allMedicines
+        .filter { medicine ->
+            val available = medicine.isAvailable && !medicine.isRecalled && medicine.expiryTimestamp > now && medicine.totalStock > 0
+            val cityOk = selectedMedicineCity == "all" || medicine.locationName.contains(selectedMedicineCity, ignoreCase = true)
+            val categoryOk = selectedTherapeuticCategory == "all" || medicine.therapeuticCategory == selectedTherapeuticCategory
+            val formOk = selectedForm == "all" || medicine.medicineForm == selectedForm
+            val prescriptionOk = when (prescriptionFilter) {
+                "required" -> medicine.requiresPrescription
+                "not_required" -> !medicine.requiresPrescription
+                else -> true
+            }
+            matchesQuery(medicine) && (!onlyAvailable || available) && cityOk && categoryOk && formOk && prescriptionOk
+        }
+        .let { list ->
+            when (sortMode) {
+                "price_asc" -> list.sortedBy { it.priceMinor }
+                "stock_desc" -> list.sortedByDescending { it.totalStock }
+                "expiry_asc" -> list.sortedBy { it.expiryTimestamp }
+                else -> list.sortedWith(compareByDescending<ProductEntity> {
+                    val q = normalize(searchMedicineText)
+                    q.isNotBlank() && normalize(it.name).contains(q)
+                }.thenBy { it.priceMinor })
+            }
+        }
+
     if (isSimulatingCamera) {
-        // SIMULATED CAMERA SHUTTER DIALOG
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("📸 كاميرا المجمع: التقاط صورة الروشتة الطبية", color = Color.White, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(18.dp)) {
+                Text("📸 كاميرا المجمع: التقاط صورة الوصفة الطبية", color = Color.White, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(10.dp))
-                // Shutter animation placeholder
                 Box(
                     modifier = Modifier
-                        .size(200.dp)
-                        .border(2.dp, Color.White, RoundedCornerShape(8.dp))
-                        .background(Color.DarkGray)
+                        .size(220.dp)
+                        .border(2.dp, Color.White, RoundedCornerShape(10.dp))
+                        .background(Color.DarkGray),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(modifier = Modifier.align(Alignment.Center)) {
-                        Text("وجه العدسة على الروشتة 📝", color = Color.LightGray, fontSize = 12.sp)
-                    }
+                    Text("وجّه العدسة على الوصفة بوضوح", color = Color.LightGray, fontSize = 12.sp)
                 }
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(18.dp))
                 Button(
                     onClick = {
                         mockImageAttached = true
@@ -1668,307 +1723,263 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
                         isSimulatingCamera = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Text("التقاط الصورة 🔘", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
+                ) { Text("التقاط الصورة", color = Color.Black, fontWeight = FontWeight.Bold) }
             }
         }
-    } else {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .testTag("pharmacy_screen_container")
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("pharmacy_screen_container")
+    ) {
+        Text(
+            text = "💊 بحث الدواء وطلبه من الصيدليات",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = "البحث هنا يفصل بين كتالوج الدواء وطلب الدواء غير الموجود. لا يتم قبول دواء منتهي أو مسحوب.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+            value = searchMedicineText,
+            onValueChange = { searchMedicineText = it },
+            label = { Text("اسم الدواء / الشركة / الباركود / الباتش") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "بحث") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = activeIngredientQuery,
+            onValueChange = { activeIngredientQuery = it },
+            label = { Text("المادة الفعالة: Paracetamol / Amoxicillin...") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            item { FilterTabChip(title = if (onlyAvailable) "المتاح فقط ✓" else "كل النتائج", active = onlyAvailable, onClick = { onlyAvailable = !onlyAvailable }) }
+            cityOptions.forEach { (value, label) ->
+                item { FilterTabChip(title = label, active = selectedMedicineCity == value, onClick = { selectedMedicineCity = value }) }
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            categoryOptions.forEach { (value, label) ->
+                item { FilterTabChip(title = label, active = selectedTherapeuticCategory == value, onClick = { selectedTherapeuticCategory = value }) }
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            formOptions.forEach { (value, label) ->
+                item { FilterTabChip(title = label, active = selectedForm == value, onClick = { selectedForm = value }) }
+            }
+            item { FilterTabChip(title = "يتطلب وصفة", active = prescriptionFilter == "required", onClick = { prescriptionFilter = if (prescriptionFilter == "required") "all" else "required" }) }
+            item { FilterTabChip(title = "بدون وصفة", active = prescriptionFilter == "not_required", onClick = { prescriptionFilter = if (prescriptionFilter == "not_required") "all" else "not_required" }) }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            item { FilterTabChip(title = "الأقرب تطابقًا", active = sortMode == "relevance", onClick = { sortMode = "relevance" }) }
+            item { FilterTabChip(title = "الأرخص", active = sortMode == "price_asc", onClick = { sortMode = "price_asc" }) }
+            item { FilterTabChip(title = "الأكثر مخزونًا", active = sortMode == "stock_desc", onClick = { sortMode = "stock_desc" }) }
+            item { FilterTabChip(title = "الأقرب انتهاءً", active = sortMode == "expiry_asc", onClick = { sortMode = "expiry_asc" }) }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.55f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Text(
-                text = "💊 نظام الاستعلام العكسي وبث طلبات الدواء للصيدليات",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Text search input
-            OutlinedTextField(
-                value = searchMedicineText,
-                onValueChange = { searchMedicineText = it },
-                label = { Text("ابحث باسم الدواء / الشركة / الباتش") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "بحث", tint = MaterialTheme.colorScheme.primary) },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                item { FilterTabChip(title = if (onlyAvailable) "المتاح فقط ✓" else "كل النتائج", active = onlyAvailable, onClick = { onlyAvailable = !onlyAvailable }) }
-                item { FilterTabChip(title = "كل المدن", active = selectedMedicineCity == "all", onClick = { selectedMedicineCity = "all" }) }
-                item { FilterTabChip(title = "صنعاء", active = selectedMedicineCity == "صنعاء", onClick = { selectedMedicineCity = "صنعاء" }) }
-                item { FilterTabChip(title = "عدن", active = selectedMedicineCity == "عدن", onClick = { selectedMedicineCity = "عدن" }) }
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                    text = "نتائج البحث: ${filteredMedicines.size} من أصل ${allMedicines.size} دواء.",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "إن لم يظهر الدواء، أرسل طلبًا للصيدليات وسيتم استقبال عروض بسعر وكمية ووقت تجهيز.",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+        }
 
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "نتائج البحث: ${medicines.size} من أصل ${allMedicines.size} مستحضر. إذا لم يظهر الدواء، استخدم زر البث للصيدليات.",
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Spacer(modifier = Modifier.height(8.dp))
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Attachment bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = { isSimulatingCamera = true },
+                modifier = Modifier.weight(1f).height(48.dp),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Button(
-                    onClick = { isSimulatingCamera = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1.5f).height(48.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Add, contentDescription = "كاميرا", tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (mockImageAttached) "تغيير الروشتة المرفقة 📸" else "تصوير الروشتة الطبية 📸", fontSize = 11.sp)
-                    }
-                }
-
-                if (mockImageAttached) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(0.2f))
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                            .weight(1f)
-                    ) {
-                        Text("تم الإرفاق بنجاح ✓", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
-                    }
-                }
+                Icon(Icons.Default.Add, contentDescription = "وصفة", modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(if (mockImageAttached) "تغيير الوصفة" else "إرفاق وصفة", fontSize = 11.sp)
             }
-
-            // Interactive OCR safety audit trigger
-            if (mockImageAttached && !ocrAuditFinished) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text("🛡️ تدقيق سلامة الروشتة الممسوحة (OCR Dawaa Audit)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                        Text("يقوم النظام اللامركزي بمطابقة الوصفة مع سحب الأدوية النشط بالجمهورية وفترات الصلاحية قبل البث المفتوح للأمان المالي والدواء.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(0.8f))
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        if (runningOcrAudit) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("جاري فك الترميز ومطابقة الباتشات والـ Expiry...", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            Button(
-                                onClick = {
-                                    runningOcrAudit = true
-                                    // Simulated high speed OCR parsing delay
-                                    ocrAuditFinished = false
-                                },
-                                modifier = Modifier.fillMaxWidth().height(32.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text("بدء مطابقة فك الكود وفحص السحب العام 🔍", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-
-                LaunchedEffect(runningOcrAudit) {
-                    if (runningOcrAudit) {
-                        kotlinx.coroutines.delay(1000)
-                        runningOcrAudit = false
-                        ocrAuditFinished = true
-                    }
-                }
-            }
-
-            // OCR Safety Check results card
-            if (ocrAuditFinished) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2C)),
-                    border = BorderStroke(1.dp, Color(0xFFE11D48))
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Warning, contentDescription = "تنبيه صحي", tint = Color(0xFFE11D48), modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("تقرير مطابقة سلامة المستحضرات بالروشتة:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        
-                        Divider(color = Color.DarkGray)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        
-                        Text("1. بندول اكسترا فضي 24 حبة (Batch B-8822-EXP)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
-                        Text("   • تاريخ الصلاحية: آمن ومطابق (متبقي 220 يوم) ✓", fontSize = 9.sp, color = Color.LightGray)
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text("2. قطرات فيتامين د3 للأطفال (Batch B-5489-REC)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE11D48))
-                        Text("   • 🚨 إنذار حظر نشط: الباتش مسحوب وموقوف التداول بقرار الهيئة العليا للأدوية في اليمن لوجود رطوبة مجهرية بالصمام!", fontSize = 9.sp, color = Color(0xFFFDA4AF))
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF881337).copy(0.3f))
-                                .padding(6.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                        ) {
-                            Text("🔒 تم قفل تمرير البث مؤقتاً لحمايتك. أقر بوعيك واشطب الدواء الملوث للمتابعة.", fontSize = 9.sp, color = Color(0xFFFECDD3), fontWeight = FontWeight.Bold)
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = {
-                                ocrAuditFinished = false
-                                mockImageAttached = false
-                            },
-                            modifier = Modifier.fillMaxWidth().height(28.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("أفرغ المرفقات وأعد مسح وصفة سليمة ⚙️", fontSize = 9.sp, color = Color.White)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
             Button(
                 onClick = {
-                    viewModel.requestPrescriptionDawaa(searchMedicineText, mockImageAttached)
+                    val medicineName = searchMedicineText.ifBlank { activeIngredientQuery.ifBlank { "طلب دواء غير محدد" } }
+                    viewModel.requestPrescriptionDawaa(medicineName, mockImageAttached)
                     mockImageAttached = false
                     ocrAuditFinished = false
                 },
-                enabled = !ocrAuditFinished, // Lock broadcast safely if there is recalled medicine found by OCR loop!
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .testTag("broadcast_dawaa_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = if (ocrAuditFinished) Color.DarkGray else MaterialTheme.colorScheme.primary),
+                enabled = !ocrAuditFinished,
+                modifier = Modifier.weight(1.2f).height(48.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text(
-                    text = if (ocrAuditFinished) "🚨 تم إيقاف البث لوجود ملوثات بالطلبية" else "بث طبي موحد لكافة الصيدليات القريبة 📡",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
+                Text("بث طلب للصيدليات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
+        }
 
-            Spacer(modifier = Modifier.height(20.dp))
+        if (mockImageAttached) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text("✓ تم إرفاق وصفة مؤقتة. الرفع الحقيقي للصور سيكون مع Backend.", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+        }
 
-            // Local directory catalogue list (صيدليات وصناعات)
-            Text(
-                text = "نتائج البحث في دليل الأدوية:",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
+        if (mockImageAttached && !ocrAuditFinished) {
             Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(0.65f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(0.4f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text("تدقيق وصفة مبدئي", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("هذا تدقيق محلي تجريبي. الإنتاج يحتاج OCR/Backend وسجل أدوية مسحوبة رسمي.", fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    if (runningOcrAudit) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("جاري التدقيق...", fontSize = 10.sp)
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                runningOcrAudit = true
+                                ocrAuditFinished = false
+                            },
+                            modifier = Modifier.fillMaxWidth().height(34.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) { Text("تشغيل التدقيق التجريبي", fontSize = 10.sp) }
+                    }
+                }
+            }
+        }
 
-            val currentTimestamp = System.currentTimeMillis()
+        Spacer(modifier = Modifier.height(10.dp))
 
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                if (medicines.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text("لا توجد نتيجة مطابقة الآن", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                                Text("لا تعتمد على كتالوج ثابت. اكتب اسم الدواء واضغط بث طبي موحد حتى ترد الصيدليات بعروض فعلية.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+        Text("قائمة الأدوية المطابقة", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(modifier = Modifier.height(6.dp))
+
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            if (filteredMedicines.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(0.20f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(0.35f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text("لا توجد نتيجة مطابقة", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                            Text("اكتب اسم الدواء أو المادة الفعالة ثم اضغط بث طلب للصيدليات. لا تجعل العميل يضيع بسبب كتالوج ناقص.", fontSize = 11.sp)
                         }
                     }
                 }
-                items(medicines) { medicine ->
-                    val isExpired = medicine.expiryTimestamp < currentTimestamp
-                    val isRecalled = medicine.isRecalled
-                    val canPurchase = !isExpired && !isRecalled
+            }
+            items(filteredMedicines) { medicine ->
+                val isExpired = medicine.expiryTimestamp < now
+                val isRecalled = medicine.isRecalled
+                val canPurchase = medicine.isAvailable && !isExpired && !isRecalled && medicine.totalStock > 0
+                val remainingDays = ((medicine.expiryTimestamp - now) / (24 * 60 * 60 * 1000L)).coerceAtLeast(0)
 
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (!canPurchase) MaterialTheme.colorScheme.errorContainer.copy(0.15f) else MaterialTheme.colorScheme.surface
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1.5f)) {
-                                Text(medicine.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                Text("الموقع: ${medicine.locationName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("الباتش: ${medicine.batchNumber}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f))
-
-                                if (isRecalled) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFFE11D48).copy(0.2f))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                    ) {
-                                        Text("🚨 مسحوب ومحظور من هيئة الغذاء والدواء", fontSize = 9.sp, color = Color(0xFFF43F5E), fontWeight = FontWeight.Bold)
-                                    }
-                                } else if (isExpired) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFFEA580C).copy(0.2f))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                    ) {
-                                        Text("⚠️ دواء منتهي الصلاحية وصالح للإتلاف", fontSize = 9.sp, color = Color(0xFFF97316), fontWeight = FontWeight.Bold)
-                                    }
-                                }
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (!canPurchase) MaterialTheme.colorScheme.errorContainer.copy(0.15f) else MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, if (canPurchase) MaterialTheme.colorScheme.outlineVariant else MaterialTheme.colorScheme.error.copy(0.35f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                            Column(modifier = Modifier.weight(1.4f)) {
+                                Text(medicine.name, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                                Text("المادة الفعالة: ${medicine.activeIngredient.ifBlank { "غير محددة" }}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الشركة/العلامة: ${medicine.brand.ifBlank { "غير محددة" }} | القوة: ${medicine.strengthText.ifBlank { "-" }}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الشكل: ${medicine.medicineForm.ifBlank { "غير محدد" }} | التصنيف: ${medicine.therapeuticCategory.ifBlank { "غير محدد" }}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الموقع: ${medicine.locationName}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("باتش: ${medicine.batchNumber} | باركود: ${medicine.barcode.ifBlank { "غير مدخل" }}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f))
                             }
-                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(0.8f)) {
                                 Text("${medicine.price} ريال", fontWeight = FontWeight.ExtraBold, color = if (canPurchase) MaterialTheme.colorScheme.primary else Color.Gray)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Button(
-                                    onClick = { viewModel.purchaseSoukItem(medicine, null) },
-                                    enabled = canPurchase,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (canPurchase) MaterialTheme.colorScheme.primary else Color.DarkGray
-                                    ),
-                                    modifier = Modifier.height(30.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = if (isRecalled) "محجوب" else if (isExpired) "منتهي" else "حجز ودفع", 
-                                        fontSize = 10.sp, 
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (canPurchase) Color.Black else Color.Gray
-                                    )
-                                }
+                                Text("مخزون: ${medicine.totalStock}", fontSize = 10.sp)
+                                Text("الصلاحية: $remainingDays يوم", fontSize = 9.sp, color = if (remainingDays < 30) Color(0xFFEA580C) else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (medicine.requiresPrescription) item { FilterTabChip("يتطلب وصفة", true, onClick = {}) }
+                            if (isRecalled) item { FilterTabChip("مسحوب", true, onClick = {}) }
+                            if (isExpired) item { FilterTabChip("منتهي", true, onClick = {}) }
+                            if (canPurchase) item { FilterTabChip("متاح", true, onClick = {}) }
+                        }
+
+                        if (medicine.dosageHint.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("ملاحظة جرعة: ${medicine.dosageHint}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { viewModel.purchaseSoukItem(medicine, null) },
+                                enabled = canPurchase && (!medicine.requiresPrescription || mockImageAttached),
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = if (canPurchase) MaterialTheme.colorScheme.primary else Color.DarkGray)
+                            ) {
+                                Text(
+                                    text = when {
+                                        isRecalled -> "محجوب"
+                                        isExpired -> "منتهي"
+                                        medicine.requiresPrescription && !mockImageAttached -> "أرفق وصفة"
+                                        else -> "طلب هذا الدواء"
+                                    },
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    searchMedicineText = medicine.activeIngredient.ifBlank { medicine.name }
+                                    viewModel.requestPrescriptionDawaa(searchMedicineText, mockImageAttached)
+                                },
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) { Text("طلب بدائل", fontSize = 11.sp) }
                         }
                     }
                 }
@@ -3752,6 +3763,14 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
     var initialStock by remember { mutableStateOf("100") }
     var purchaseCost by remember { mutableStateOf("") }
     var expiryDaysOffset by remember { mutableStateOf("180") }
+    var activeIngredient by remember { mutableStateOf("") }
+    var medicineForm by remember { mutableStateOf("tablet") }
+    var strengthText by remember { mutableStateOf("") }
+    var therapeuticCategory by remember { mutableStateOf("painkiller") }
+    var requiresPrescription by remember { mutableStateOf(false) }
+    var manufacturerCountry by remember { mutableStateOf("") }
+    var medicineBarcode by remember { mutableStateOf("") }
+    var dosageHint by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -3831,6 +3850,80 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text("⚙️ بيانات الدفعة والمواصفات الدوائية (FIFO Batch Spec)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = activeIngredient,
+                        onValueChange = { activeIngredient = it },
+                        label = { Text("المادة الفعالة", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = strengthText,
+                            onValueChange = { strengthText = it },
+                            label = { Text("القوة: 500mg / 1g", fontSize = 10.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).height(50.dp).padding(end = 4.dp)
+                        )
+                        OutlinedTextField(
+                            value = manufacturerCountry,
+                            onValueChange = { manufacturerCountry = it },
+                            label = { Text("بلد/شركة التصنيع", fontSize = 10.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).height(50.dp).padding(start = 4.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("الشكل الدوائي", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf("tablet" to "حبوب", "syrup" to "شراب", "injection" to "حقن", "drops" to "قطرات", "solution" to "محلول", "cream" to "كريم").forEach { (value, label) ->
+                            item { FilterTabChip(label, medicineForm == value, onClick = { medicineForm = value }) }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("التصنيف العلاجي", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf("painkiller" to "مسكن", "antibiotic" to "مضاد", "diabetes" to "سكري", "pressure" to "ضغط", "vitamins" to "فيتامين", "dehydration" to "جفاف").forEach { (value, label) ->
+                            item { FilterTabChip(label, therapeuticCategory == value, onClick = { therapeuticCategory = value }) }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { requiresPrescription = !requiresPrescription }) {
+                        Checkbox(checked = requiresPrescription, onCheckedChange = { requiresPrescription = it })
+                        Text("هذا الدواء لا يصرف إلا بوصفة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = medicineBarcode,
+                        onValueChange = { medicineBarcode = it },
+                        label = { Text("الباركود الدوائي / GTIN إن وجد", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = dosageHint,
+                        onValueChange = { dosageHint = it },
+                        label = { Text("ملاحظة جرعة مختصرة / تنبيه", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    )
+
                     Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedTextField(
@@ -3924,7 +4017,15 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
                             batchNumber = batchNumber,
                             expiryTimestamp = expiryTime,
                             purchaseCost = rawCost,
-                            totalStock = stock
+                            totalStock = stock,
+                            activeIngredient = activeIngredient,
+                            medicineForm = medicineForm,
+                            strengthText = strengthText,
+                            therapeuticCategory = therapeuticCategory,
+                            requiresPrescription = requiresPrescription,
+                            manufacturerCountry = manufacturerCountry,
+                            barcode = medicineBarcode,
+                            dosageHint = dosageHint
                         )
                     } else {
                         viewModel.createMerchantProduct(productName, pr, productCategory, productLocation)

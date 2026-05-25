@@ -57,6 +57,14 @@ data class ProductEntity(
     @ColumnInfo(defaultValue = "''") val description: String = "",
     @ColumnInfo(defaultValue = "''") val brand: String = "",
     @ColumnInfo(defaultValue = "'قطعة'") val unitText: String = "قطعة",
+    @ColumnInfo(defaultValue = "''") val activeIngredient: String = "",
+    @ColumnInfo(defaultValue = "''") val medicineForm: String = "", // tablet, syrup, injection, drops, cream
+    @ColumnInfo(defaultValue = "''") val strengthText: String = "", // 500mg, 1g, 5ml
+    @ColumnInfo(defaultValue = "''") val therapeuticCategory: String = "", // painkiller, antibiotic, diabetes, vitamins...
+    @ColumnInfo(defaultValue = "0") val requiresPrescription: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val manufacturerCountry: String = "",
+    @ColumnInfo(defaultValue = "''") val barcode: String = "",
+    @ColumnInfo(defaultValue = "''") val dosageHint: String = "",
     val isAvailable: Boolean = true,
     
     // Core Pharmacological properties for Batch, Expiry & FIFO costing

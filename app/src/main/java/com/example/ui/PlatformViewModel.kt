@@ -32,7 +32,8 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         AppDatabase.MIGRATION_3_4,
         AppDatabase.MIGRATION_4_5,
         AppDatabase.MIGRATION_5_6,
-        AppDatabase.MIGRATION_6_7
+        AppDatabase.MIGRATION_6_7,
+        AppDatabase.MIGRATION_7_8
     )
     .build()
 
@@ -656,7 +657,15 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         batchNumber: String,
         expiryTimestamp: Long,
         purchaseCost: Double,
-        totalStock: Int
+        totalStock: Int,
+        activeIngredient: String = "",
+        medicineForm: String = "",
+        strengthText: String = "",
+        therapeuticCategory: String = "",
+        requiresPrescription: Boolean = false,
+        manufacturerCountry: String = "",
+        barcode: String = "",
+        dosageHint: String = ""
     ) {
         viewModelScope.launch {
             val merchant = _currentUser.value ?: return@launch
@@ -669,7 +678,15 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
                 batchNumber = batchNumber,
                 expiryTimestamp = expiryTimestamp,
                 purchaseCost = purchaseCost,
-                totalStock = totalStock
+                totalStock = totalStock,
+                activeIngredient = activeIngredient,
+                medicineForm = medicineForm,
+                strengthText = strengthText,
+                therapeuticCategory = therapeuticCategory,
+                requiresPrescription = requiresPrescription,
+                manufacturerCountry = manufacturerCountry,
+                barcode = barcode,
+                dosageHint = dosageHint
             )
             _merchantScreen.value = "dashboard"
         }
