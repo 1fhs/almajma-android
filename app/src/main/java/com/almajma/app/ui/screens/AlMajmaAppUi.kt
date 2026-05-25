@@ -4735,6 +4735,7 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
     val allReviews by viewModel.allReviews.collectAsStateWithLifecycle()
     val allDisputes by viewModel.allDisputes.collectAsStateWithLifecycle()
     val allPrescriptions by viewModel.allPrescriptions.collectAsStateWithLifecycle()
+    val allPharmacyOffers by viewModel.allPharmacyOffers.collectAsStateWithLifecycle()
     val allPharmacyVerifications by viewModel.allPharmacyVerifications.collectAsStateWithLifecycle()
 
     // Outbox & Double-Entry Reconciliation live channels (Recommendation 1 & 5)
