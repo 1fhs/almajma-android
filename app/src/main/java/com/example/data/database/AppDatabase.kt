@@ -160,7 +160,7 @@ abstract class AppDatabase : RoomDatabase() {
                     'central_config', '#10B981', '#FBBF24',
                     'مَجْمَع الضمان والاقتصاد الهجين', 'موتور وباص سريع',
                     'البحث عن دواء', 'سوق الملابس والملبوسات',
-                    'ride,pharmacy,clothing,wholesale', 1,
+                    'pharmacy,market,influencers,delivery', 1,
                     '🌙 مبارك عليكم ما تبقى من الشهر الكريم - مجمع الضمان يسهر لخدمتكم'
                 )
             """.trimIndent())

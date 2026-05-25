@@ -323,6 +323,52 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun requestDeliveryService(
+        pickupAddress: String,
+        dropoffAddress: String,
+        packageDetails: String,
+        deliveryFee: Double
+    ) {
+        viewModelScope.launch {
+            val client = _currentUser.value ?: return@launch
+            val safePickup = pickupAddress.trim().ifBlank { "موقع استلام غير محدد" }
+            val safeDropoff = dropoffAddress.trim().ifBlank { "موقع تسليم غير محدد" }
+            val safeDetails = packageDetails.trim().ifBlank { "طرد عادي" }
+            val orderId = repository.createOrder(
+                clientId = client.id,
+                merchantId = null,
+                driverId = null,
+                productName = "خدمة توصيل: $safeDetails | من: $safePickup | إلى: $safeDropoff",
+                category = "delivery",
+                totalPrice = 0.0,
+                deliveryFee = deliveryFee.coerceAtLeast(0.0),
+                paymentMethod = "cash"
+            )
+            _selectedOrderId.value = orderId
+            _clientScreen.value = "chat"
+        }
+    }
+
+    fun requestInfluencerCampaign(title: String, budget: Double, notes: String) {
+        viewModelScope.launch {
+            val client = _currentUser.value ?: return@launch
+            val safeTitle = title.trim().ifBlank { "طلب حملة مشاهير" }
+            val safeNotes = notes.trim().ifBlank { "بدون تفاصيل إضافية" }
+            val orderId = repository.createOrder(
+                clientId = client.id,
+                merchantId = null,
+                driverId = null,
+                productName = "حملة مشاهير: $safeTitle | $safeNotes",
+                category = "influencer",
+                totalPrice = budget.coerceAtLeast(0.0),
+                deliveryFee = 0.0,
+                paymentMethod = "cash"
+            )
+            _selectedOrderId.value = orderId
+            _clientScreen.value = "chat"
+        }
+    }
+
     // Interactive operations: Client Broadcast Prescription medicine request to nearby pharmacies (Reverse Bidding)
     fun requestPrescriptionDawaa(medicineName: String, prescriptionAttached: Boolean) {
         viewModelScope.launch {

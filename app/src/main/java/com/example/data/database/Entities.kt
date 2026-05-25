@@ -290,7 +290,7 @@ data class SystemConfigEntity(
     val rideLabel: String = "موتور وباص سريع",
     val pharmacyLabel: String = "البحث عن دواء",
     val clothingLabel: String = "سوق الملابس والملبوسات",
-    val marketplaceOrder: String = "ride,pharmacy,clothing,wholesale",
+    val marketplaceOrder: String = "pharmacy,market,influencers,delivery",
     val isPromoBannerVisible: Boolean = true,
     val promoBannerText: String = "🌙 مبارك عليكم ما تبقى من الشهر الكريم - مجمع الضمان يسهر لخدمتكم"
 )

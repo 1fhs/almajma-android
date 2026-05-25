@@ -677,6 +677,10 @@ class PlatformRepository(
         val order = orderDao.getOrderById(orderId) ?: return
         val merchant = userDao.getUserById(merchantId) ?: return
         if (order.category != "medicine" || order.status in listOf("completed", "cancelled", "refunded")) return
+        if (merchant.businessType != "pharmacy") {
+            notifyUser(order.tenantId, merchantId, orderId, "طلب دواء محجوب", "هذا الحساب ليس صيدلية، ولا يسمح له بالتسعير على طلبات الدواء.", "danger")
+            return
+        }
 
         val verification = pharmacyVerificationDao.getVerificationForMerchant(merchantId)
         if (verification != null && verification.status != "approved") {
@@ -1030,23 +1034,29 @@ class PlatformRepository(
     suspend fun createProduct(merchantId: Int, name: String, price: Double, category: String, location: String) {
         val merchant = userDao.getUserById(merchantId)
         val tenant = merchant?.tenantId ?: "tenant_صنعاء_وسط"
+        val safeCategory = when {
+            merchant?.businessType == "pharmacy" -> "medicine"
+            category == "medicine" -> "clothing"
+            category in listOf("clothing", "wholesale", "general_market", "influencer") -> category
+            else -> "general_market"
+        }
 
         val product = ProductEntity(
             tenantId = tenant,
             merchantId = merchantId,
             name = name,
             price = price,
-            category = category,
+            category = safeCategory,
             locationName = location,
-            batchNumber = "B-SANA-${(10..99).random()}",
-            expiryTimestamp = System.currentTimeMillis() + (180 * 24 * 60 * 60 * 1000L), // 6 Months
-            purchaseCost = price * 0.75, // FIFO valuation representation
+            batchNumber = if (safeCategory == "medicine") "B-SANA-${(10..99).random()}" else "NON-MED",
+            expiryTimestamp = if (safeCategory == "medicine") System.currentTimeMillis() + (180 * 24 * 60 * 60 * 1000L) else 0L,
+            purchaseCost = if (safeCategory == "medicine") price * 0.75 else 0.0,
             isRecalled = false,
             totalStock = (20..200).random()
         )
         productDao.insertProduct(product)
 
-        enqueueOutboxEvent(tenant, "PRODUCT_CREATED", "{ name: '$name', price: $price }")
+        enqueueOutboxEvent(tenant, "PRODUCT_CREATED", "{ name: '$name', price: $price, category: '$safeCategory' }")
     }
 
     suspend fun createProductFull(
@@ -1063,12 +1073,14 @@ class PlatformRepository(
         val merchant = userDao.getUserById(merchantId)
         val tenant = merchant?.tenantId ?: "tenant_صنعاء_وسط"
 
+        val safeCategory = if (merchant?.businessType == "pharmacy") "medicine" else category
+
         val product = ProductEntity(
             tenantId = tenant,
             merchantId = merchantId,
             name = name,
             price = price,
-            category = category,
+            category = safeCategory,
             locationName = location,
             batchNumber = batchNumber,
             expiryTimestamp = expiryTimestamp,
@@ -1159,8 +1171,10 @@ class PlatformRepository(
             productDao.insertProduct(ProductEntity(tenantId = "tenant_صنعاء_وسط", merchantId = boutiqueId, name = "شال حرير دبل يمني مخيط", price = 14000.0, category = "clothing", locationName = "أبين - سوق الجملة"))
             productDao.insertProduct(ProductEntity(tenantId = "tenant_صنعاء_وسط", merchantId = boutiqueId, name = "معوز حضرمي ممتاز حياكة يدوية", price = 25000.0, category = "clothing", locationName = "حضرموت - تريم"))
 
-            // Seed Wholesale grains
+            // Seed Wholesale and general market
             productDao.insertProduct(ProductEntity(tenantId = "tenant_صنعاء_وسط", merchantId = boutiqueId, name = "قطر أرز بسمتي هندي فاخر 10 كجم", price = 11000.0, category = "wholesale", locationName = "الحديدة - الرصيف م7"))
+            productDao.insertProduct(ProductEntity(tenantId = "tenant_صنعاء_وسط", merchantId = boutiqueId, name = "سلة تموين منزلية شهرية", price = 18500.0, category = "general_market", locationName = "صنعاء - سوق المحلي"))
+            productDao.insertProduct(ProductEntity(tenantId = "tenant_صنعاء_وسط", merchantId = boutiqueId, name = "باقة إعلان مشاهير محليين - ستوري + منشور", price = 30000.0, category = "influencer", locationName = "صنعاء / عدن", description = "باقة ترويجية تجريبية للمحال والخدمات المحلية"))
 
             // Seed Order
             val activeOrderId = orderDao.insertOrder(

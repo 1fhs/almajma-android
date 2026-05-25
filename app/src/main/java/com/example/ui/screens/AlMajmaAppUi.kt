@@ -105,6 +105,27 @@ fun getBusinessTypeArName(type: String): String = when (type) {
     else -> "حساب فردي"
 }
 
+fun isMarketplaceCategory(category: String): Boolean = category in listOf(
+    "clothing", "wholesale", "general_market", "market", "souk"
+)
+
+fun isMedicineCategory(category: String): Boolean = category == "medicine"
+
+fun isDeliveryCategory(category: String): Boolean = category in listOf("ride", "delivery")
+
+fun isInfluencerCategory(category: String): Boolean = category == "influencer"
+
+fun categoryArName(category: String): String = when (category) {
+    "medicine" -> "💊 دواء"
+    "ride" -> "🏍️ مشوار"
+    "delivery" -> "🚚 خدمة توصيل"
+    "clothing" -> "👕 ملابس"
+    "wholesale" -> "📦 جملة"
+    "general_market", "market", "souk" -> "🛍️ سوق"
+    "influencer" -> "⭐ مشاهير"
+    else -> "🧾 $category"
+}
+
 fun merchantSectionTitle(user: UserEntity?): String = when (user?.businessType) {
     "pharmacy" -> "واجهة الصيدلية وإدارة الدواء 💊"
     "marketplace" -> "واجهة تاجر السوق والملابس 🛍️"
@@ -674,9 +695,10 @@ fun ClientAppRoot(viewModel: PlatformViewModel, currentScreen: String) {
         ) { screen ->
             when (screen) {
                 "home" -> ClientHomeScreen(viewModel = viewModel)
-                "ride" -> ClientRideHailingScreen(viewModel = viewModel)
+                "ride", "delivery" -> ClientDeliveryServiceScreen(viewModel = viewModel)
                 "pharmacy" -> ClientPharmacyScreen(viewModel = viewModel)
-                "Souk" -> ClientSoukScreen(viewModel = viewModel)
+                "Souk", "market" -> ClientSoukScreen(viewModel = viewModel)
+                "influencers" -> ClientInfluencersScreen(viewModel = viewModel)
                 "chat" -> ChatRoomScreen(viewModel = viewModel)
                 "wallet" -> WalletScreenAr(viewModel = viewModel)
                 "profile" -> ProfileScreen(viewModel = viewModel)
@@ -707,31 +729,31 @@ fun ClientBottomNav(currentScreen: String, onNav: (String) -> Unit) {
             colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
         )
         NavigationBarItem(
-            selected = currentScreen == "ride",
-            onClick = { onNav("ride") },
-            icon = { Icon(Icons.Default.LocationOn, contentDescription = "طلب ناقلة") },
-            label = { Text("طلب مبرمج", fontSize = 10.sp) },
-            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
-        )
-        NavigationBarItem(
             selected = currentScreen == "pharmacy",
             onClick = { onNav("pharmacy") },
-            icon = { Icon(Icons.Default.Star, contentDescription = "الأدوية") },
-            label = { Text("سوق الدواء", fontSize = 10.sp) },
+            icon = { Icon(Icons.Default.Star, contentDescription = "الصيدليات") },
+            label = { Text("صيدليات", fontSize = 10.sp) },
             colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
         )
         NavigationBarItem(
-            selected = currentScreen == "Souk",
-            onClick = { onNav("Souk") },
+            selected = currentScreen == "market" || currentScreen == "Souk",
+            onClick = { onNav("market") },
             icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "السوق") },
-            label = { Text("سوق المجمع", fontSize = 10.sp) },
+            label = { Text("السوق", fontSize = 10.sp) },
             colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
         )
         NavigationBarItem(
-            selected = currentScreen == "wallet",
-            onClick = { onNav("wallet") },
-            icon = { Icon(Icons.Default.Person, contentDescription = "المحفظة") },
-            label = { Text("محفظتي", fontSize = 10.sp) },
+            selected = currentScreen == "influencers",
+            onClick = { onNav("influencers") },
+            icon = { Icon(Icons.Default.Favorite, contentDescription = "مشاهير") },
+            label = { Text("مشاهير", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
+        )
+        NavigationBarItem(
+            selected = currentScreen == "delivery" || currentScreen == "ride",
+            onClick = { onNav("delivery") },
+            icon = { Icon(Icons.Default.LocationOn, contentDescription = "توصيل") },
+            label = { Text("توصيل", fontSize = 10.sp) },
             colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary)
         )
     }
@@ -889,82 +911,63 @@ fun ClientHomeScreen(viewModel: PlatformViewModel) {
         }
         item { Spacer(modifier = Modifier.height(12.dp)) }
 
-        // Division marketplace grid (Re-arranged Server-Driven UI)
+        // Four clear customer tracks. Do not mix pharmacy, market, influencers and delivery.
         item {
             Text(
-                text = systemConfig.appTitle,
+                text = "اختر مسار الخدمة",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Start
             )
+            Text(
+                text = "تم فصل المسارات حتى لا تختلط طلبات الدواء مع السوق أو المشاهير أو التوصيل.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(modifier = Modifier.height(10.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ServiceBox(
+                    title = "صيدليات وأدوية",
+                    desc = "بحث دواء وبث طلب للصيدليات",
+                    icon = Icons.Default.Star,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.navigateClientTo("pharmacy") }
+                )
+                ServiceBox(
+                    title = "سوق وملابس",
+                    desc = "ملابس وجملة ومنتجات عامة",
+                    icon = Icons.Default.ShoppingCart,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.navigateClientTo("market") }
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ServiceBox(
+                    title = "مشاهير",
+                    desc = "إعلانات وترويج محلي بضمان",
+                    icon = Icons.Default.Favorite,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.navigateClientTo("influencers") }
+                )
+                ServiceBox(
+                    title = "خدمة توصيل",
+                    desc = "مندوب/موتور لنقل طلب أو طرد",
+                    icon = Icons.Default.LocationOn,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                    onClick = { viewModel.navigateClientTo("delivery") }
+                )
+            }
         }
 
-        item {
-            val orderList = remember(systemConfig.marketplaceOrder) {
-                systemConfig.marketplaceOrder.split(",")
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-            }
-            val chunks = orderList.chunked(2)
-            chunks.forEach { chunk ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    chunk.forEach { serviceId ->
-                        when (serviceId) {
-                            "ride" -> ServiceBox(
-                                title = systemConfig.rideLabel,
-                                desc = "توصيل / مساومة فورية",
-                                icon = Icons.Default.LocationOn,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.navigateClientTo("ride") }
-                            )
-                            "pharmacy" -> ServiceBox(
-                                title = systemConfig.pharmacyLabel,
-                                desc = "بحث عكسي ومقارنة دواء",
-                                icon = Icons.Default.Star,
-                                color = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.navigateClientTo("pharmacy") }
-                            )
-                            "clothing" -> ServiceBox(
-                                title = systemConfig.clothingLabel,
-                                desc = "سوق محلي مخفض للمساومة",
-                                icon = Icons.Default.ShoppingCart,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.navigateClientTo("Souk") }
-                            )
-                            "wholesale", "wholesale_souk" -> ServiceBox(
-                                title = "السلع والتموين بالجملة",
-                                desc = "طلب أغذية وبذور وسلع بالضمان",
-                                icon = Icons.Default.ShoppingCart,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.navigateClientTo("Souk") }
-                            )
-                            "wallet" -> ServiceBox(
-                                title = "المحفظة والضمان اللامركزي",
-                                desc = "تتبع الصدقات وعمولات المحفظة",
-                                icon = Icons.Default.Person,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.navigateClientTo("wallet") }
-                            )
-                        }
-                    }
-                    if (chunk.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-        }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
 
         item { Spacer(modifier = Modifier.height(24.dp)) }
 
@@ -1096,11 +1099,7 @@ fun OrderTrackingCard(order: OrderEntity, viewModel: PlatformViewModel, onClick:
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = when (order.category) {
-                            "medicine" -> "💊 دواء"
-                            "ride" -> "🏍️ موتور تفاوضي"
-                            else -> "🛍️ سوق المجمع"
-                        },
+                        text = categoryArName(order.category),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1973,7 +1972,7 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
             .testTag("souk_screen_container")
     ) {
         Text(
-            text = "🛍️ سوق المجمع الاستهلاكلي المحلي",
+            text = "🛍️ سوق وملابس — مسار منفصل عن الصيدليات",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
@@ -1989,6 +1988,8 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                 FilterTabChip(title = "شالات وملابس", active = selectedCategoryFilter == "clothing", onClick = { selectedCategoryFilter = "clothing" })
                 Spacer(modifier = Modifier.width(6.dp))
                 FilterTabChip(title = "مخرجات وسوق الجملة", active = selectedCategoryFilter == "wholesale", onClick = { selectedCategoryFilter = "wholesale" })
+                Spacer(modifier = Modifier.width(6.dp))
+                FilterTabChip(title = "منتجات عامة", active = selectedCategoryFilter == "general_market", onClick = { selectedCategoryFilter = "general_market" })
             }
         }
 
@@ -2031,6 +2032,7 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                         val catName = when(item.category) {
                             "clothing" -> "ملابس وأزياء"
                             "wholesale" -> "تجزئة وجملة"
+                            "general_market" -> "منتجات عامة"
                             else -> item.category
                         }
                         Text(
@@ -2141,6 +2143,198 @@ fun ClientSoukScreen(viewModel: PlatformViewModel) {
                 }
             }
         )
+    }
+}
+
+
+// ------------------------------------------
+// CLIENT SCREEN: INFLUENCERS TRACK (مشاهير)
+// ------------------------------------------
+@Composable
+fun ClientInfluencersScreen(viewModel: PlatformViewModel) {
+    val products by viewModel.products.collectAsStateWithLifecycle()
+    val influencerServices = products.filter { isInfluencerCategory(it.category) }
+    var campaignTitle by remember { mutableStateOf("إعلان افتتاح متجر محلي") }
+    var campaignBudget by remember { mutableStateOf("25000") }
+    var campaignNotes by remember { mutableStateOf("ستوري + منشور قصير للجمهور المحلي") }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("influencers_screen_container"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(
+                text = "⭐ مشاهير — إعلانات وترويج بضمان",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "هذا المسار منفصل عن الصيدليات والسوق. مناسب لإعلانات المتاجر والخدمات المحلية.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.45f)), shape = RoundedCornerShape(12.dp)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("طلب حملة جديدة", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    OutlinedTextField(
+                        value = campaignTitle,
+                        onValueChange = { campaignTitle = it },
+                        label = { Text("عنوان الحملة") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = campaignBudget,
+                        onValueChange = { campaignBudget = it },
+                        label = { Text("الميزانية المقترحة") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        suffix = { Text("ريال") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = campaignNotes,
+                        onValueChange = { campaignNotes = it },
+                        label = { Text("تفاصيل الإعلان") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = { viewModel.requestInfluencerCampaign(campaignTitle, campaignBudget.toDoubleOrNull() ?: 0.0, campaignNotes) },
+                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                    ) {
+                        Text("إرسال طلب حملة مشاهير", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        item {
+            Text("باقات جاهزة للتجربة", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        }
+
+        if (influencerServices.isEmpty()) {
+            item {
+                Text(
+                    text = "لا توجد باقات مشاهير مضافة بعد. استخدم نموذج الحملة بالأعلى.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(18.dp)
+                )
+            }
+        } else {
+            items(influencerServices) { item ->
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(12.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(item.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(item.description.ifBlank { "باقة ترويج محلي مع متابعة تنفيذ الحملة." }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("${Money.formatMinor(item.priceMinor)} ريال", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                            Button(onClick = { viewModel.purchaseSoukItem(item, null) }, modifier = Modifier.height(34.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
+                                Text("طلب الباقة", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------
+// CLIENT SCREEN: DELIVERY SERVICE TRACK (خدمة توصيل)
+// ------------------------------------------
+@Composable
+fun ClientDeliveryServiceScreen(viewModel: PlatformViewModel) {
+    var pickupAddress by remember { mutableStateOf("من باب اليمن") }
+    var dropoffAddress by remember { mutableStateOf("إلى شارع حدة") }
+    var packageDetails by remember { mutableStateOf("طرد صغير / مستندات") }
+    var offeredFee by remember { mutableStateOf("1500") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .testTag("delivery_service_screen"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "🚚 خدمة توصيل مستقلة",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = "هذا المسار لخدمات النقل والتوصيل فقط. لا يعرض طلبات دواء ولا منتجات سوق.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        OutlinedTextField(
+            value = pickupAddress,
+            onValueChange = { pickupAddress = it },
+            label = { Text("موقع الاستلام") },
+            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = "استلام") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = dropoffAddress,
+            onValueChange = { dropoffAddress = it },
+            label = { Text("موقع التسليم") },
+            leadingIcon = { Icon(Icons.Default.Send, contentDescription = "تسليم") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = packageDetails,
+            onValueChange = { packageDetails = it },
+            label = { Text("تفاصيل الطرد / الخدمة") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = offeredFee,
+            onValueChange = { offeredFee = it },
+            label = { Text("الأجر المقترح للكابتن") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            suffix = { Text("ريال") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Button(
+            onClick = {
+                viewModel.requestDeliveryService(
+                    pickupAddress = pickupAddress,
+                    dropoffAddress = dropoffAddress,
+                    packageDetails = packageDetails,
+                    deliveryFee = offeredFee.toDoubleOrNull() ?: 1500.0
+                )
+            },
+            modifier = Modifier.fillMaxWidth().height(52.dp)
+        ) {
+            Text("بث طلب التوصيل للكباتن", color = Color.Black, fontWeight = FontWeight.Bold)
+        }
+
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(0.10f)), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.25f))) {
+            Text(
+                text = "ملاحظة تشغيلية: في الإنتاج سيتم فلترة الكباتن حسب المدينة والنطاق وحالة التفعيل من السيرفر، وليس من واجهة الهاتف فقط.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
     }
 }
 
@@ -3540,7 +3734,7 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
             .testTag("add_product_screen")
     ) {
         Text(
-            text = if (isPharmacy) "✏️ إدراج دواء جديد ببيانات دفعة وصلاحية" else "✏️ إدراج منتج سوق / ملابس / جملة",
+            text = if (isPharmacy) "✏️ إدراج دواء جديد ببيانات دفعة وصلاحية" else "✏️ إدراج منتج سوق / ملابس / جملة — ممنوع إضافة أدوية هنا",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
@@ -3581,14 +3775,20 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
                 Text("هذا الحساب مصنف كصيدلية؛ يسمح بإضافة الأدوية فقط مع بيانات الباتش والصلاحية.", modifier = Modifier.padding(10.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         } else {
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "clothing" }) {
-                    RadioButton(selected = productCategory == "clothing", onClick = { productCategory = "clothing" })
-                    Text("شال/ملبس", fontSize = 11.sp)
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { productCategory = "clothing" }) {
+                        RadioButton(selected = productCategory == "clothing", onClick = { productCategory = "clothing" })
+                        Text("ملابس", fontSize = 11.sp)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { productCategory = "wholesale" }) {
+                        RadioButton(selected = productCategory == "wholesale", onClick = { productCategory = "wholesale" })
+                        Text("جملة وغذاء", fontSize = 11.sp)
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "wholesale" }) {
-                    RadioButton(selected = productCategory == "wholesale", onClick = { productCategory = "wholesale" })
-                    Text("جملة وغذاء", fontSize = 11.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { productCategory = "general_market" }) {
+                    RadioButton(selected = productCategory == "general_market", onClick = { productCategory = "general_market" })
+                    Text("منتجات عامة / سوق", fontSize = 11.sp)
                 }
             }
         }
@@ -3950,7 +4150,13 @@ fun DriverBottomNav(currentScreen: String, onNav: (String) -> Unit) {
 @Composable
 fun DriverRadarScreen(viewModel: PlatformViewModel) {
     val orders by viewModel.orders.collectAsStateWithLifecycle()
-    val availableRides = orders.filter { it.driverId == null && (it.category == "ride" || it.category == "medicine") && it.status in listOf("funds_frozen", "ready") }
+    val availableRides = orders.filter {
+        it.driverId == null &&
+            (
+                (isDeliveryCategory(it.category) && it.status in listOf("pending", "funds_frozen", "ready")) ||
+                (it.category == "medicine" && it.status in listOf("funds_frozen", "ready"))
+            )
+    }
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
 
     var radarIsRunning by remember { mutableStateOf(true) }
@@ -4046,7 +4252,11 @@ fun DriverRadarScreen(viewModel: PlatformViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (ride.category == "ride") " مشوار موتور سفري" else " توصيل دواء دقيق",
+                                    text = when {
+                                        isDeliveryCategory(ride.category) -> " خدمة توصيل مستقلة"
+                                        ride.category == "medicine" -> " توصيل دواء دقيق"
+                                        else -> categoryArName(ride.category)
+                                    },
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
