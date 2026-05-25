@@ -471,9 +471,9 @@ class PlatformRepository(
                 senderName = "النظام المالي المحكم",
                 messageText = when (initialStatus) {
                     "waiting_offers" -> "تم استقبال طلب الدواء. سيتم عرض عروض الصيدليات هنا، ولا يتم تجميد الضمان إلا بعد قبول عرض محدد."
-                    "funds_frozen" -> "تم إنشاء الطلب وتجميد الضمان المالي. كود التسليم السري هو: $releaseCode"
+                    "funds_frozen" -> "تم إنشاء الطلب وتجميد الضمان المالي. كود التسليم يظهر للعميل فقط، ولا يشارك إلا عند الاستلام الفعلي."
                     "CONFLICT" -> "الطلب يحتاج موافقة سعر جديدة قبل التجميد."
-                    else -> "تم إنشاء الطلب. تابع التفاوض من هذه الغرفة. كود التسليم: $releaseCode"
+                    else -> "تم إنشاء الطلب. تابع التفاوض من هذه الغرفة. كود التسليم محفوظ لدى العميل فقط."
                 }
             )
         )
@@ -1309,7 +1309,7 @@ class PlatformRepository(
             notificationDao.insertNotification(NotificationEntity(tenantId = "tenant_عدن_صيدلة", userId = clientId, orderId = activeOrderId, title = "طلب دواء نشط", body = "لديك طلب دواء في الضمان، لا تعطِ الكود إلا عند الاستلام.", severity = "warning"))
 
             // Chat messages for active demonstration
-            chatDao.insertMessage(ChatMessageEntity(orderId = activeOrderId, senderRole = "system", senderName = "النظام المالي المحكم", messageText = "تم إنشاء تجميد الأموال للعملية بنجاح بقيمة 10,000 ريال (شامل التوصيل). الكود السري للتحرير هو 7711"))
+            chatDao.insertMessage(ChatMessageEntity(orderId = activeOrderId, senderRole = "system", senderName = "النظام المالي المحكم", messageText = "تم إنشاء تجميد الأموال للعملية بنجاح بقيمة 10,000 ريال (شامل التوصيل). كود التسليم لا يظهر إلا للعميل، ويُطلب منه عند الاستلام الفعلي فقط."))
             chatDao.insertMessage(ChatMessageEntity(orderId = activeOrderId, senderRole = "client", senderName = "أحمد بن علي", messageText = "أرجو توصيله سريعاً للمنزل، خلف مدرسة بلقيس، الروشتة مصورة ومرفوعة."))
             chatDao.insertMessage(ChatMessageEntity(orderId = activeOrderId, senderRole = "merchant", senderName = "صيدلية اليمن الكبرى", messageText = "الطلب جاهز ومحجوز، ومطابق مع تواريخ الصلاحية والباتش الدوائي."))
             chatDao.insertMessage(ChatMessageEntity(orderId = activeOrderId, senderRole = "driver", senderName = "أبو رعد الموتور", messageText = "استلمت الصندوق المعمّم من الصيدلية وأنا قادم بالطريق."))

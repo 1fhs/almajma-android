@@ -1284,7 +1284,7 @@ fun OrderTrackingCard(order: OrderEntity, viewModel: PlatformViewModel, onClick:
                     Icon(Icons.Default.Lock, contentDescription = "قفل", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(13.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "كود استلام القيمة للناقل: ",
+                        text = "كود التسليم الخاص بك: ",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2563,6 +2563,7 @@ fun ChatRoomScreen(viewModel: PlatformViewModel) {
             }
         }
     } else {
+        val canSeeDeliveryCode = currentUser?.id == activeOrder.clientId
         Column(modifier = Modifier.fillMaxSize()) {
             // Chat Header
             Card(
@@ -2621,14 +2622,14 @@ fun ChatRoomScreen(viewModel: PlatformViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "كود استلام القيمة للزبون: ${activeOrder.otpReleaseCode}",
+                        text = if (canSeeDeliveryCode) "كود التسليم الخاص بك: ${activeOrder.otpReleaseCode}" else "كود التسليم لا يظهر إلا للعميل. اطلبه عند التسليم الفعلي فقط.",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.padding(start = 8.dp)
                     )
                     Text(
-                        text = "القيمة معلقة بالضمان (Frozen)",
+                        text = if (canSeeDeliveryCode) "لا تعطه إلا عند الاستلام" else "الضمان لا يتحرر بدون كود العميل",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.secondary
                     )
@@ -4225,7 +4226,7 @@ fun MerchantEscrowTrackerScreen(viewModel: PlatformViewModel) {
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "لكي يتم تحرير المبلغ وحساب الإيرادات، يجب الحصول على كود الإفراج وعنوان الأرباح (2% عمولة للمجمع)",
+            text = "كود التسليم لا يظهر للتاجر أو الصيدلية. يطلب من العميل عند التسليم الفعلي فقط، ثم يتم إدخاله هنا لتحرير الضمان.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -4336,12 +4337,12 @@ fun MerchantEscrowTrackerScreen(viewModel: PlatformViewModel) {
             title = { Text("تأكيد استلام كود الحزمة والفك مالي", textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth()) },
             text = {
                 Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxWidth()) {
-                    Text("أدخل كود التوصيل الفعلي الممنوح للمريض:", style = MaterialTheme.typography.bodySmall)
+                    Text("اطلب كود التسليم من العميل عند الاستلام الفعلي، ثم أدخله هنا. لا يظهر الكود للتاجر أو الصيدلية أو السائق.", style = MaterialTheme.typography.bodySmall)
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = otpConfirmInput,
                         onValueChange = { otpConfirmInput = it },
-                        label = { Text("رمز التحرير (4 أرقام)") },
+                        label = { Text("كود التسليم من العميل (4 أرقام)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
