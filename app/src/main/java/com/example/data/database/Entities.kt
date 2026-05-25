@@ -16,7 +16,15 @@ data class UserEntity(
     val role: String, // "client", "merchant", "driver", "admin"
     val walletBalance: Double, // cached display only; authoritative ledger uses walletBalanceMinor/ledger amountMinor
     @ColumnInfo(defaultValue = "0") val walletBalanceMinor: Long = Money.toMinor(walletBalance),
-    val status: String // "active", "busy", "offline", "suspended"
+    val status: String, // "active", "busy", "offline", "suspended"
+    @ColumnInfo(defaultValue = "''") val fullName: String = "",
+    @ColumnInfo(defaultValue = "''") val displayName: String = "",
+    @ColumnInfo(defaultValue = "'none'") val businessType: String = "none", // none, pharmacy, marketplace, delivery, admin
+    @ColumnInfo(defaultValue = "''") val businessName: String = "",
+    @ColumnInfo(defaultValue = "''") val city: String = "",
+    @ColumnInfo(defaultValue = "''") val address: String = "",
+    @ColumnInfo(defaultValue = "''") val licenseNumber: String = "",
+    @ColumnInfo(defaultValue = "0") val isProfileComplete: Boolean = false
 )
 
 @Entity(
@@ -32,6 +40,9 @@ data class ProductEntity(
     @ColumnInfo(defaultValue = "0") val priceMinor: Long = Money.toMinor(price),
     val category: String, // "medicine", "ride", "clothing", "wholesale"
     val locationName: String,
+    @ColumnInfo(defaultValue = "''") val description: String = "",
+    @ColumnInfo(defaultValue = "''") val brand: String = "",
+    @ColumnInfo(defaultValue = "'قطعة'") val unitText: String = "قطعة",
     val isAvailable: Boolean = true,
     
     // Core Pharmacological properties for Batch, Expiry & FIFO costing

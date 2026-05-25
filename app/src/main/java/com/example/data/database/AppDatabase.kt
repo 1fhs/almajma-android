@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LedgerEntryEntity::class,
         OutboxEventEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -75,6 +75,12 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addMinorUnitColumns(db)
                 backfillMinorUnitColumns(db)
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addBusinessSeparationColumns(db)
             }
         }
 
@@ -323,6 +329,29 @@ abstract class AppDatabase : RoomDatabase() {
             addColumnIfMissing(db, "transactions", "amountMinor", "INTEGER NOT NULL DEFAULT 0")
             addColumnIfMissing(db, "ledger_entries", "amountMinor", "INTEGER NOT NULL DEFAULT 0")
             addColumnIfMissing(db, "pharmacy_offers", "priceMinor", "INTEGER NOT NULL DEFAULT 0")
+        }
+
+        private fun addBusinessSeparationColumns(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "users", "fullName", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "displayName", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "businessType", "TEXT NOT NULL DEFAULT 'none'")
+            addColumnIfMissing(db, "users", "businessName", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "city", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "address", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "licenseNumber", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "users", "isProfileComplete", "INTEGER NOT NULL DEFAULT 0")
+
+            addColumnIfMissing(db, "products", "description", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "brand", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "products", "unitText", "TEXT NOT NULL DEFAULT 'قطعة'")
+
+            if (tableExists(db, "users")) {
+                db.execSQL("UPDATE `users` SET businessType = CASE WHEN role = 'admin' THEN 'admin' WHEN role = 'driver' THEN 'delivery' WHEN role = 'client' THEN 'none' WHEN role = 'merchant' AND phone = '770000002' THEN 'pharmacy' WHEN role = 'merchant' THEN 'marketplace' ELSE 'none' END WHERE businessType = 'none' OR businessType = ''")
+                db.execSQL("UPDATE `users` SET displayName = CASE WHEN role = 'merchant' AND businessType = 'pharmacy' THEN 'صيدلية اليمن الكبرى' WHEN role = 'merchant' THEN 'تاجر سوق المجمع' WHEN role = 'driver' THEN 'كابتن توصيل' WHEN role = 'admin' THEN 'مدير النظام' ELSE 'عميل المجمع' END WHERE displayName = ''")
+                db.execSQL("UPDATE `users` SET businessName = displayName WHERE businessName = '' AND role = 'merchant'")
+                db.execSQL("UPDATE `users` SET city = CASE WHEN tenantId LIKE '%عدن%' THEN 'عدن - كريتر' ELSE 'صنعاء' END WHERE city = ''")
+                db.execSQL("UPDATE `users` SET isProfileComplete = 1 WHERE role IN ('merchant', 'driver', 'admin') AND displayName != ''")
+            }
         }
 
         private fun backfillMinorUnitColumns(db: SupportSQLiteDatabase) {

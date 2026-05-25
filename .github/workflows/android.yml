@@ -29,9 +29,6 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
 
-      - name: Show generated APK files
-        run: ls -R app/build/outputs/apk/debug
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

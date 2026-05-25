@@ -23,6 +23,29 @@ interface UserDao {
     @Update
     suspend fun updateUser(user: UserEntity)
 
+    @Query("""
+        UPDATE users
+        SET fullName = :fullName,
+            displayName = :displayName,
+            businessType = :businessType,
+            businessName = :businessName,
+            city = :city,
+            address = :address,
+            licenseNumber = :licenseNumber,
+            isProfileComplete = 1
+        WHERE id = :id
+    """)
+    suspend fun updateUserProfile(
+        id: Int,
+        fullName: String,
+        displayName: String,
+        businessType: String,
+        businessName: String,
+        city: String,
+        address: String,
+        licenseNumber: String
+    )
+
     @Query("UPDATE users SET walletBalance = :newBalance, walletBalanceMinor = CAST(ROUND(:newBalance * 100.0) AS INTEGER) WHERE id = :id")
     suspend fun updateWalletBalance(id: Int, newBalance: Double)
 }

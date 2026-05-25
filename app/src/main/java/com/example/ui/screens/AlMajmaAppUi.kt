@@ -94,6 +94,20 @@ fun getRoleArName(role: String): String = when (role) {
     else -> role
 }
 
+fun getBusinessTypeArName(type: String): String = when (type) {
+    "pharmacy" -> "صيدلية"
+    "marketplace" -> "تاجر سوق / ملابس / جملة"
+    "delivery" -> "توصيل"
+    "admin" -> "إدارة"
+    else -> "حساب فردي"
+}
+
+fun merchantSectionTitle(user: UserEntity?): String = when (user?.businessType) {
+    "pharmacy" -> "واجهة الصيدلية وإدارة الدواء 💊"
+    "marketplace" -> "واجهة تاجر السوق والملابس 🛍️"
+    else -> "واجهة التاجر — أكمل بيانات النشاط"
+}
+
 fun getNetworkArName(mode: NetworkMode): String = when (mode) {
     NetworkMode.ONLINE -> "إنترنت عادي السيرفر الموحد"
     NetworkMode.ZERO_DATA -> "توفير البيانات (اتصال APN مغلق)"
@@ -1580,7 +1594,20 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
     var ocrAuditFinished by remember { mutableStateOf(false) }
 
     val products by viewModel.products.collectAsStateWithLifecycle()
-    val medicines = products.filter { it.category == "medicine" }
+    var onlyAvailable by remember { mutableStateOf(true) }
+    var selectedMedicineCity by remember { mutableStateOf("all") }
+    val allMedicines = products.filter { it.category == "medicine" }
+    val currentTimestampForFilter = System.currentTimeMillis()
+    val medicines = allMedicines.filter { medicine ->
+        val matchesText = searchMedicineText.isBlank() ||
+            medicine.name.contains(searchMedicineText, ignoreCase = true) ||
+            medicine.brand.contains(searchMedicineText, ignoreCase = true) ||
+            medicine.description.contains(searchMedicineText, ignoreCase = true) ||
+            medicine.batchNumber.contains(searchMedicineText, ignoreCase = true)
+        val matchesAvailability = !onlyAvailable || (medicine.isAvailable && !medicine.isRecalled && medicine.expiryTimestamp > currentTimestampForFilter && medicine.totalStock > 0)
+        val matchesCity = selectedMedicineCity == "all" || medicine.locationName.contains(selectedMedicineCity, ignoreCase = true)
+        matchesText && matchesAvailability && matchesCity
+    }
 
     if (isSimulatingCamera) {
         // SIMULATED CAMERA SHUTTER DIALOG
@@ -1637,11 +1664,27 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
             OutlinedTextField(
                 value = searchMedicineText,
                 onValueChange = { searchMedicineText = it },
-                label = { Text("ابحث أو اكتب اسم الدواء الذي تبحث عنه") },
+                label = { Text("ابحث باسم الدواء / الشركة / الباتش") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "بحث", tint = MaterialTheme.colorScheme.primary) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                item { FilterTabChip(title = if (onlyAvailable) "المتاح فقط ✓" else "كل النتائج", active = onlyAvailable, onClick = { onlyAvailable = !onlyAvailable }) }
+                item { FilterTabChip(title = "كل المدن", active = selectedMedicineCity == "all", onClick = { selectedMedicineCity = "all" }) }
+                item { FilterTabChip(title = "صنعاء", active = selectedMedicineCity == "صنعاء", onClick = { selectedMedicineCity = "صنعاء" }) }
+                item { FilterTabChip(title = "عدن", active = selectedMedicineCity == "عدن", onClick = { selectedMedicineCity = "عدن" }) }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "نتائج البحث: ${medicines.size} من أصل ${allMedicines.size} مستحضر. إذا لم يظهر الدواء، استخدم زر البث للصيدليات.",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1806,7 +1849,7 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
 
             // Local directory catalogue list (صيدليات وصناعات)
             Text(
-                text = "دليل الأدوية الشائعة الحالية بالمجمع:",
+                text = "نتائج البحث في دليل الأدوية:",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1817,6 +1860,19 @@ fun ClientPharmacyScreen(viewModel: PlatformViewModel) {
             val currentTimestamp = System.currentTimeMillis()
 
             LazyColumn(modifier = Modifier.weight(1f)) {
+                if (medicines.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text("لا توجد نتيجة مطابقة الآن", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                                Text("لا تعتمد على كتالوج ثابت. اكتب اسم الدواء واضغط بث طبي موحد حتى ترد الصيدليات بعروض فعلية.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
                 items(medicines) { medicine ->
                     val isExpired = medicine.expiryTimestamp < currentTimestamp
                     val isRecalled = medicine.isRecalled
@@ -2790,8 +2846,9 @@ fun TransactionRow(tx: TransactionEntity) {
 // ==========================================
 @Composable
 fun MerchantAppRoot(viewModel: PlatformViewModel, currentScreen: String) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     Column(modifier = Modifier.fillMaxSize()) {
-        AlMajmaTopBar(viewModel = viewModel, titleRole = "واجهة التجار ومقدمي الخدمات 🛍️")
+        AlMajmaTopBar(viewModel = viewModel, titleRole = merchantSectionTitle(currentUser))
         AnimatedContent(
             targetState = currentScreen,
             label = "MerchantScreenTransition",
@@ -2811,13 +2868,14 @@ fun MerchantAppRoot(viewModel: PlatformViewModel, currentScreen: String) {
         // Merchant specific tabs bottom
         MerchantBottomNav(
             currentScreen = currentScreen,
+            businessType = currentUser?.businessType ?: "marketplace",
             onNav = { viewModel.navigateMerchantTo(it) }
         )
     }
 }
 
 @Composable
-fun MerchantBottomNav(currentScreen: String, onNav: (String) -> Unit) {
+fun MerchantBottomNav(currentScreen: String, businessType: String, onNav: (String) -> Unit) {
     NavigationBar(
         modifier = Modifier.height(65.dp),
         tonalElevation = 8.dp,
@@ -2833,7 +2891,7 @@ fun MerchantBottomNav(currentScreen: String, onNav: (String) -> Unit) {
             selected = currentScreen == "incoming",
             onClick = { onNav("incoming") },
             icon = { Icon(Icons.Default.Star, contentDescription = "طلبات الدواء") },
-            label = { Text("طلبات وبث", fontSize = 10.sp) }
+            label = { Text(if (businessType == "pharmacy") "طلبات الدواء" else "طلبات السوق", fontSize = 10.sp) }
         )
         NavigationBarItem(
             selected = currentScreen == "products",
@@ -2878,8 +2936,8 @@ fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("صيدلية اليمن الكبرى (نشط)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text("معرف منصة المجمع: #3302", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(currentUser?.businessName?.ifBlank { currentUser?.displayName ?: "نشاط غير مكتمل" } ?: "نشاط غير مكتمل", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("النوع: ${getBusinessTypeArName(currentUser?.businessType ?: "none")} | المدينة: ${currentUser?.city?.ifBlank { "غير محددة" } ?: "غير محددة"}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
 
                         // Status switch OPEN/CLOSED
@@ -2977,13 +3035,13 @@ fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
         // Core Pharmacological Dashboard Section Header
         item {
             Text(
-                text = "📋 إدارة سلامة الأدوية وجرد الـ FIFO والـ COGS",
+                text = if (currentUser?.businessType == "pharmacy") "📋 إدارة سلامة الأدوية وجرد الـ FIFO والـ COGS" else "📋 إدارة منتجات السوق والمخزون والطلبات",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "راقب فترات انتظام الصلاحية وتكلفة البضاعة بدقة وسجّل سحب الدفعات النشط فورياً.",
+                text = if (currentUser?.businessType == "pharmacy") "راقب فترات انتظام الصلاحية وتكلفة البضاعة بدقة وسجّل سحب الدفعات النشط فورياً." else "راقب منتجات الملابس والجملة وطلبات الشراء بعيداً عن تدفق الصيدليات والأدوية.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -3215,6 +3273,9 @@ fun MerchantDashboardScreen(viewModel: PlatformViewModel) {
 @Composable
 fun MerchantIncomingRequestsScreen(viewModel: PlatformViewModel) {
     val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val isPharmacy = currentUser?.businessType == "pharmacy"
+    val marketplaceIncoming = orders.filter { it.merchantId == currentUser?.id && it.category != "medicine" && it.status in listOf("pending", "funds_frozen") }
     val dismissedMedicationRequestIds = remember { mutableStateListOf<Int>() }
     val openMedicationRequests = orders.filter {
         it.category == "medicine" &&
@@ -3238,18 +3299,44 @@ fun MerchantIncomingRequestsScreen(viewModel: PlatformViewModel) {
             .testTag("incoming_requests_merchant")
     ) {
         Text(
-            text = "📡 رادار طلبات وبث الأدوية والوصفات الطبية المجاورة",
+            text = if (isPharmacy) "📡 رادار طلبات وبث الأدوية والوصفات الطبية" else "📦 طلبات السوق والملابس الخاصة بمتجرك",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "اطلع على الروشتات الطبية وقدم عرض سعر منافس فوري للمريض",
+            text = if (isPharmacy) "اطلع على الروشتات الطبية وقدم عرض سعر منافس فوري للمريض" else "هنا تظهر طلبات الشراء والمساومة الخاصة بمنتجات الملابس والجملة فقط؛ لا تختلط مع الصيدليات.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        if (!isPharmacy) {
+            if (marketplaceIncoming.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("لا توجد طلبات سوق نشطة على منتجاتك حالياً.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(marketplaceIncoming) { req ->
+                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("طلب سوق #${req.id}", fontWeight = FontWeight.Bold)
+                                Text(req.productName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الحالة: ${orderStatusAr(req.status)} | المبلغ: ${Money.formatMinor(req.totalPriceMinor)} ريال", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { viewModel.markOrderPreparing(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("بدء التجهيز", color = Color.Black, fontSize = 10.sp) }
+                                    OutlinedButton(onClick = { viewModel.selectOrderForChat(req.id) }, modifier = Modifier.weight(1f).height(32.dp), contentPadding = PaddingValues(0.dp)) { Text("فتح المحادثة", fontSize = 10.sp) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return@Column
+        }
 
         if (openMedicationRequests.isEmpty()) {
             Box(
@@ -3429,10 +3516,12 @@ fun MerchantIncomingRequestsScreen(viewModel: PlatformViewModel) {
 // ------------------------------------------
 @Composable
 fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val isPharmacy = currentUser?.businessType == "pharmacy"
     var productName by remember { mutableStateOf("") }
     var productPrice by remember { mutableStateOf("") }
-    var productCategory by remember { mutableStateOf("clothing") } // clothing, wholesale, medicine
-    var productLocation by remember { mutableStateOf("صيدلية اليمن الكبرى - صنعاء") }
+    var productCategory by remember(currentUser?.businessType) { mutableStateOf(if (isPharmacy) "medicine" else "clothing") } // clothing, wholesale, medicine
+    var productLocation by remember(currentUser?.address, currentUser?.businessName) { mutableStateOf(currentUser?.address?.ifBlank { currentUser?.businessName ?: "موقع المتجر" } ?: "موقع المتجر") }
 
     // Pharmacological-specific fields
     var batchNumber by remember { mutableStateOf("B-SANA-${(10..99).random()}") }
@@ -3448,7 +3537,7 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
             .testTag("add_product_screen")
     ) {
         Text(
-            text = "✏️ إدراج مادة أو منتج جديد بالمجمع وبمواصفات دقيقة",
+            text = if (isPharmacy) "✏️ إدراج دواء جديد ببيانات دفعة وصلاحية" else "✏️ إدراج منتج سوق / ملابس / جملة",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
@@ -3482,20 +3571,22 @@ fun AddProductCatalogScreen(viewModel: PlatformViewModel) {
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Category Selection
+        // Category Selection - separated by business type
         Text("القسم التجاري الخاص بالمنتج:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "clothing" }) {
-                RadioButton(selected = productCategory == "clothing", onClick = { productCategory = "clothing" })
-                Text("شال/ملبس", fontSize = 11.sp)
+        if (isPharmacy) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(0.10f)), modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Text("هذا الحساب مصنف كصيدلية؛ يسمح بإضافة الأدوية فقط مع بيانات الباتش والصلاحية.", modifier = Modifier.padding(10.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "wholesale" }) {
-                RadioButton(selected = productCategory == "wholesale", onClick = { productCategory = "wholesale" })
-                Text("جملة وغذاء", fontSize = 11.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "medicine" }) {
-                RadioButton(selected = productCategory == "medicine", onClick = { productCategory = "medicine" })
-                Text("صيدلاني/دواء", fontSize = 11.sp)
+        } else {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "clothing" }) {
+                    RadioButton(selected = productCategory == "clothing", onClick = { productCategory = "clothing" })
+                    Text("شال/ملبس", fontSize = 11.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f).clickable { productCategory = "wholesale" }) {
+                    RadioButton(selected = productCategory == "wholesale", onClick = { productCategory = "wholesale" })
+                    Text("جملة وغذاء", fontSize = 11.sp)
+                }
             }
         }
 
@@ -4100,6 +4191,8 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val systemConfig by viewModel.systemConfig.collectAsStateWithLifecycle()
     val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val products by viewModel.products.collectAsStateWithLifecycle()
+    val users by viewModel.users.collectAsStateWithLifecycle()
     val backupLogs by viewModel.backupLogs.collectAsStateWithLifecycle()
     val allReviews by viewModel.allReviews.collectAsStateWithLifecycle()
     val allDisputes by viewModel.allDisputes.collectAsStateWithLifecycle()
@@ -4178,6 +4271,48 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
         }
 
 
+
+        // Section 00: Executive reports
+        item {
+            val pharmacyUsers = users.count { it.businessType == "pharmacy" }
+            val marketUsers = users.count { it.businessType == "marketplace" }
+            val medicineOrders = orders.count { it.category == "medicine" }
+            val marketOrders = orders.count { it.category != "medicine" && it.category != "ride" }
+            val completedOrders = orders.count { it.status == "completed" }
+            val escrowOrders = orders.count { it.status in listOf("funds_frozen", "preparing", "ready", "delivering") }
+            val medicineProducts = products.count { it.category == "medicine" }
+            val marketProducts = products.count { it.category != "medicine" }
+            val openDisputesCount = allDisputes.count { it.status == "open" }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(0.25f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("📊 تقارير تشغيلية مختصرة", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("فصل واضح بين الصيدليات وسوق الملابس/التجار حتى لا تختلط العمليات والتقارير.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("صيدليات", pharmacyUsers.toString(), "حسابات دوائية", Modifier.weight(1f))
+                        AdminMiniReportCard("تجار سوق", marketUsers.toString(), "ملابس/جملة", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("طلبات دواء", medicineOrders.toString(), "بحث ووصفات", Modifier.weight(1f))
+                        AdminMiniReportCard("طلبات سوق", marketOrders.toString(), "شراء ومساومة", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdminMiniReportCard("بالضمان", escrowOrders.toString(), "أموال مجمدة", Modifier.weight(1f))
+                        AdminMiniReportCard("نزاعات مفتوحة", openDisputesCount.toString(), "تحتاج قرار", Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("المنتجات: $medicineProducts دواء، $marketProducts منتج سوق. الطلبات المكتملة: $completedOrders.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
 
         // Section 0: Real operations control - disputes, prescriptions, pharmacy verification
         item {
@@ -4880,70 +5015,201 @@ fun SuperAdminDashboardScreen(viewModel: PlatformViewModel) {
 }
 
 @Composable
+fun AdminMiniReportCard(title: String, value: String, subtitle: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.55f)),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(title, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+            Text(subtitle, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
 fun ProfileScreen(viewModel: PlatformViewModel) {
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    var fullName by remember(currentUser?.id, currentUser?.fullName) { mutableStateOf(currentUser?.fullName ?: "") }
+    var displayName by remember(currentUser?.id, currentUser?.displayName) { mutableStateOf(currentUser?.displayName ?: "") }
+    var businessType by remember(currentUser?.id, currentUser?.businessType) { mutableStateOf(currentUser?.businessType ?: "none") }
+    var businessName by remember(currentUser?.id, currentUser?.businessName) { mutableStateOf(currentUser?.businessName ?: "") }
+    var city by remember(currentUser?.id, currentUser?.city) { mutableStateOf(currentUser?.city ?: "") }
+    var address by remember(currentUser?.id, currentUser?.address) { mutableStateOf(currentUser?.address ?: "") }
+    var licenseNumber by remember(currentUser?.id, currentUser?.licenseNumber) { mutableStateOf(currentUser?.licenseNumber ?: "") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // App / Brand Icon
         Card(
-            modifier = Modifier.size(100.dp),
-            shape = RoundedCornerShape(50.dp),
+            modifier = Modifier.size(88.dp),
+            shape = RoundedCornerShape(44.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-            elevation = CardDefaults.cardElevation(8.dp)
+            elevation = CardDefaults.cardElevation(6.dp)
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
                     imageVector = Icons.Default.Person,
                     contentDescription = "الملف الشخصي",
-                    modifier = Modifier.size(60.dp),
+                    modifier = Modifier.size(52.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "رقم الهاتف: ${currentUser?.phone ?: "غير متوفر"}",
+            text = displayName.ifBlank { currentUser?.phone ?: "حساب غير معروف" },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
-
         Text(
-            text = "النوع: ${
-                when (currentRole) {
-                    "client" -> "عميل / زبون"
-                    "merchant" -> "تاجر / صيدلي"
-                    "driver" -> "كابتن توصيل"
-                    "admin" -> "مدير النظام"
-                    else -> currentRole
-                }
-            }",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "${getRoleArName(currentRole)} | ${getBusinessTypeArName(businessType)}",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp)
+            modifier = Modifier.padding(top = 4.dp)
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(2.dp),
             shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("بيانات الحساب الأساسية", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("هذه البيانات تفصل الصيدلية عن تاجر السوق وتمنع خلط واجهات الدواء مع الملابس.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = fullName,
+                    onValueChange = { fullName = it },
+                    label = { Text("الاسم الكامل") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("اسم الظهور داخل التطبيق") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (currentRole == "merchant") {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("نوع النشاط", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { businessType = "pharmacy" }) {
+                            RadioButton(selected = businessType == "pharmacy", onClick = { businessType = "pharmacy" })
+                            Text("صيدلية", fontSize = 11.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable { businessType = "marketplace" }) {
+                            RadioButton(selected = businessType == "marketplace", onClick = { businessType = "marketplace" })
+                            Text("سوق/ملابس", fontSize = 11.sp)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = businessName,
+                        onValueChange = { businessName = it },
+                        label = { Text(if (businessType == "pharmacy") "اسم الصيدلية الرسمي" else "اسم المتجر / البوتيك") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = licenseNumber,
+                        onValueChange = { licenseNumber = it },
+                        label = { Text(if (businessType == "pharmacy") "رقم ترخيص الصيدلية" else "رقم السجل / تعريف التاجر") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = city,
+                        onValueChange = { city = it },
+                        label = { Text("المدينة") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = currentUser?.phone ?: "",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("رقم الهاتف") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("العنوان التفصيلي / نطاق الخدمة") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        val safeBusinessName = if (currentRole == "merchant") businessName else ""
+                        val safeBusinessType = when (currentRole) {
+                            "merchant" -> if (businessType == "pharmacy") "pharmacy" else "marketplace"
+                            "driver" -> "delivery"
+                            "admin" -> "admin"
+                            else -> "none"
+                        }
+                        viewModel.saveMyProfileDetails(
+                            fullName = fullName,
+                            displayName = displayName.ifBlank { fullName },
+                            businessType = safeBusinessType,
+                            businessName = safeBusinessName,
+                            city = city,
+                            address = address,
+                            licenseNumber = licenseNumber
+                        )
+                        Toast.makeText(context, "تم حفظ بيانات الملف", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("حفظ بيانات الحساب", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(2.dp),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("تفاصيل المحفظة والرصيد", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                 Divider(modifier = Modifier.padding(vertical = 12.dp))
-                
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("الرصيد المتاح:", fontSize = 14.sp)
                     Text("${currentUser?.let { Money.formatMinor(it.walletBalanceMinor) } ?: "0.00"} ريال", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -4957,16 +5223,23 @@ fun ProfileScreen(viewModel: PlatformViewModel) {
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("اكتمال البيانات:", fontSize = 14.sp)
+                    Text(
+                        if (currentUser?.isProfileComplete == true) "مكتمل" else "ناقص",
+                        fontWeight = FontWeight.Bold,
+                        color = if (currentUser?.isProfileComplete == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Button(
             onClick = { viewModel.logout() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
+            modifier = Modifier.fillMaxWidth().height(54.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             shape = RoundedCornerShape(12.dp)
         ) {

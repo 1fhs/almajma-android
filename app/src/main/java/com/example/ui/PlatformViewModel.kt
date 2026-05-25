@@ -30,7 +30,8 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         AppDatabase.MIGRATION_1_2,
         AppDatabase.MIGRATION_2_3,
         AppDatabase.MIGRATION_3_4,
-        AppDatabase.MIGRATION_4_5
+        AppDatabase.MIGRATION_4_5,
+        AppDatabase.MIGRATION_5_6
     )
     .build()
 
@@ -77,6 +78,10 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
     val networkMode: StateFlow<NetworkMode> = connectionManager.networkMode
     val latencyMs: StateFlow<Int> = connectionManager.latencyMs
     val meshPeersNearby: StateFlow<Int> = connectionManager.meshPeersNearby
+
+    // Users and product streams
+    val users: StateFlow<List<UserEntity>> = repository.allUsers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Interactive product streams
     val products: StateFlow<List<ProductEntity>> = repository.allProducts
@@ -677,6 +682,31 @@ class PlatformViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val user = _currentUser.value ?: return@launch
             repository.markNotificationsRead(user.id)
+        }
+    }
+
+    fun saveMyProfileDetails(
+        fullName: String,
+        displayName: String,
+        businessType: String,
+        businessName: String,
+        city: String,
+        address: String,
+        licenseNumber: String
+    ) {
+        viewModelScope.launch {
+            val user = _currentUser.value ?: return@launch
+            repository.updateUserProfile(
+                userId = user.id,
+                fullName = fullName,
+                displayName = displayName,
+                businessType = businessType,
+                businessName = businessName,
+                city = city,
+                address = address,
+                licenseNumber = licenseNumber
+            )
+            _currentUser.value = repository.getUserById(user.id)
         }
     }
 
